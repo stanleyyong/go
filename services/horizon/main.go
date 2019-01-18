@@ -14,6 +14,7 @@ import (
 	"github.com/stellar/go/services/horizon/internal/db2/schema"
 	apkg "github.com/stellar/go/support/app"
 	"github.com/stellar/go/support/log"
+	"github.com/stellar/go/support/strutils"
 	"github.com/throttled/throttled"
 )
 
@@ -23,6 +24,8 @@ var config horizon.Config
 var rootCmd *cobra.Command
 
 func main() {
+	// out := strutils.KebabToConstantCase("per-hour-rate-limit")
+	// stdLog.Fatal(out)
 	rootCmd.Execute()
 }
 
@@ -30,32 +33,59 @@ func init() {
 	viper.SetDefault("port", 8000)
 	viper.SetDefault("history-retention-count", 0)
 
-	viper.BindEnv("port", "PORT")
+	configOpts := []string{
+		"port",
+		// viper.BindEnv("db-url", "DATABASE_URL")
+		// viper.BindEnv("stellar-core-db-url", "STELLAR_CORE_DATABASE_URL")
+		"stellar-core-url",
+		"max-db-connections",
+		"sse-update-frequency",
+		"connection-timeout",
+		"per-hour-rate-limit",
+		"rate-limit-redis-key",
+		"redis-url",
+		"ruby-horizon-url",
+		"friendbot-url",
+		"log-level",
+		"log-file",
+		"sentry-dsn",
+		"loggly-token",
+		"loggly-tag",
+		"tls-cert",
+		"tls-key",
+		"ingest",
+		"network-passphrase",
+		"history-retention-count",
+		"history-stale-threshold",
+		"skip-cursor-update",
+		"enable-asset-stats",
+		"max-path-length",
+	}
+
+	type ericConfig struct {
+		name   string
+		envVar string
+	}
+
+	allConfigs := make([]ericConfig, 50)
+
+	for i, option := range configOpts {
+		ec := ericConfig{
+			name:   option,
+			envVar: strutils.KebabToConstantCase(option),
+		}
+		allConfigs[i] = ec
+	}
+
+	for _, ec := range allConfigs {
+		viper.BindEnv(ec.name, ec.envVar)
+	}
+
 	viper.BindEnv("db-url", "DATABASE_URL")
 	viper.BindEnv("stellar-core-db-url", "STELLAR_CORE_DATABASE_URL")
-	viper.BindEnv("stellar-core-url", "STELLAR_CORE_URL")
-	viper.BindEnv("max-db-connections", "MAX_DB_CONNECTIONS")
-	viper.BindEnv("sse-update-frequency", "SSE_UPDATE_FREQUENCY")
-	viper.BindEnv("connection-timeout", "CONNECTION_TIMEOUT")
-	viper.BindEnv("per-hour-rate-limit", "PER_HOUR_RATE_LIMIT")
-	viper.BindEnv("rate-limit-redis-key", "RATE_LIMIT_REDIS_KEY")
-	viper.BindEnv("redis-url", "REDIS_URL")
-	viper.BindEnv("ruby-horizon-url", "RUBY_HORIZON_URL")
-	viper.BindEnv("friendbot-url", "FRIENDBOT_URL")
-	viper.BindEnv("log-level", "LOG_LEVEL")
-	viper.BindEnv("log-file", "LOG_FILE")
-	viper.BindEnv("sentry-dsn", "SENTRY_DSN")
-	viper.BindEnv("loggly-token", "LOGGLY_TOKEN")
-	viper.BindEnv("loggly-tag", "LOGGLY_TAG")
-	viper.BindEnv("tls-cert", "TLS_CERT")
-	viper.BindEnv("tls-key", "TLS_KEY")
-	viper.BindEnv("ingest", "INGEST")
-	viper.BindEnv("network-passphrase", "NETWORK_PASSPHRASE")
-	viper.BindEnv("history-retention-count", "HISTORY_RETENTION_COUNT")
-	viper.BindEnv("history-stale-threshold", "HISTORY_STALE_THRESHOLD")
-	viper.BindEnv("skip-cursor-update", "SKIP_CURSOR_UPDATE")
-	viper.BindEnv("enable-asset-stats", "ENABLE_ASSET_STATS")
-	viper.BindEnv("max-path-length", "MAX_PATH_LENGTH")
+
+	// For testing purposes only
+	stdLog.Fatal(allConfigs)
 
 	rootCmd = &cobra.Command{
 		Use:   "horizon",
