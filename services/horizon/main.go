@@ -67,6 +67,7 @@ func init() {
 		},
 	}
 
+	// Configure flag types
 	rootCmd.PersistentFlags().String(
 		"db-url",
 		"",
