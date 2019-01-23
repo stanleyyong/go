@@ -23,9 +23,70 @@ var config horizon.Config
 
 var rootCmd *cobra.Command
 
+type flagType func(name string, value interface{}, usage string) interface{}
+
+var (
+	stringFlag flagType = func(name string, value interface{}, usage string) interface{} {
+		return rootCmd.PersistentFlags().String(name, value.(string), usage)
+	}
+	intFlag flagType = func(name string, value interface{}, usage string) interface{} {
+		return rootCmd.PersistentFlags().Int(name, value.(int), usage)
+	}
+	uintFlag flagType = func(name string, value interface{}, usage string) interface{} {
+		return rootCmd.PersistentFlags().Uint(name, value.(uint), usage)
+	}
+	boolFlag flagType = func(name string, value interface{}, usage string) interface{} {
+		return rootCmd.PersistentFlags().Bool(name, value.(bool), usage)
+	}
+)
+
+type configOption struct {
+	name        string
+	envVar      string
+	flagType    flagType
+	flagDefault interface{}
+	required    bool
+	usage       string
+}
+
+func (co *configOption) require() error {
+	stdLog.Print(co.name, " ", co.required, " ", viper.GetString(co.name))
+	if co.required == true && viper.GetString(co.name) == "" {
+		stdLog.Fatalf("Invalid config: %s is blank. Please specify --%s on the command line or set the %s environment variable.", co.name, co.name, co.envVar)
+	}
+	return nil
+}
+
+// TODO: Fix capitalisation on usage string
+var configOpts = []configOption{
+	configOption{name: "port", flagType: intFlag, flagDefault: 8000, usage: "tcp port to listen on for http requests"},
+	configOption{name: "stellar-core-db-url", envVar: "STELLAR_CORE_DATABASE_URL", flagType: stringFlag, required: true, usage: "stellar-core postgres database to connect with"},
+	configOption{name: "db-url", envVar: "DATABASE_URL", flagType: stringFlag, required: true, usage: "horizon postgres database to connect with"},
+	configOption{name: "stellar-core-url", flagType: stringFlag, required: true, usage: "stellar-core to connect with (for http commands)"},
+	configOption{name: "max-db-connections", flagType: intFlag, flagDefault: 20, usage: "max db connections (per DB), may need to be increased when responses are slow but DB CPU is normal"},
+	configOption{name: "sse-update-frequency", flagType: intFlag, flagDefault: 5, usage: "defines how often streams should check if there's a new ledger (in seconds), may need to increase in case of big number of streams"},
+	configOption{name: "connection-timeout", flagType: intFlag, flagDefault: 55, usage: "defines the timeout of connection after which 504 response will be sent or stream will be closed, if Horizon is behind a load balancer with idle connection timeout, this should be set to a few seconds less that idle timeout"},
+	configOption{name: "per-hour-rate-limit", flagType: intFlag, flagDefault: 3600, usage: "max count of requests allowed in a one hour period, by remote ip address"},
+	configOption{name: "rate-limit-redis-key", flagType: stringFlag, usage: "redis key for storing rate limit data, useful when deploying a cluster of Horizons, ignored when redis-url is empty"},
+	configOption{name: "redis-url", flagType: stringFlag, usage: "redis to connect with, for rate limiting"},
+	configOption{name: "friendbot-url", flagType: stringFlag, usage: "friendbot service to redirect to"},
+	configOption{name: "log-level", flagType: stringFlag, usage: "Minimum log severity (debug, info, warn, error) to log"},
+	configOption{name: "log-file", flagType: stringFlag, usage: "Name of the file where logs will be saved (leave empty to send logs to stdout)"},
+	configOption{name: "sentry-dsn", flagType: stringFlag, usage: "Sentry URL to which panics and errors should be reported"},
+	configOption{name: "loggly-token", flagType: stringFlag, usage: "Loggly token, used to configure log forwarding to loggly"},
+	configOption{name: "loggly-tag", flagType: stringFlag, flagDefault: "horizon", usage: "Tag to be added to every loggly log event"},
+	configOption{name: "tls-cert", flagType: stringFlag, usage: "The TLS certificate file to use for securing connections to horizon"},
+	configOption{name: "tls-key", flagType: stringFlag, usage: "The TLS private key file to use for securing connections to horizon"},
+	configOption{name: "ingest", flagType: boolFlag, flagDefault: false, usage: "causes this horizon process to ingest data from stellar-core into horizon's db"},
+	configOption{name: "network-passphrase", flagType: stringFlag, flagDefault: network.TestNetworkPassphrase, required: true, usage: "Override the network passphrase"},
+	configOption{name: "history-retention-count", flagType: uintFlag, flagDefault: uint(0), usage: "the minimum number of ledgers to maintain within horizon's history tables.  0 signifies an unlimited number of ledgers will be retained"},
+	configOption{name: "history-stale-threshold", flagType: uintFlag, flagDefault: uint(0), usage: "the maximum number of ledgers the history db is allowed to be out of date from the connected stellar-core db before horizon considers history stale"},
+	configOption{name: "skip-cursor-update", flagType: boolFlag, flagDefault: false, usage: "causes the ingester to skip reporting the last imported ledger state to stellar-core"},
+	configOption{name: "enable-asset-stats", flagType: boolFlag, flagDefault: false, usage: "enables asset stats during the ingestion and expose `/assets` endpoint,  Enabling it has a negative impact on CPU"},
+	configOption{name: "max-path-length", flagType: uintFlag, flagDefault: uint(4), usage: "the maximum number of assets on the path in `/paths` endpoint"},
+}
+
 func main() {
-	// out := strutils.KebabToConstantCase("per-hour-rate-limit")
-	// stdLog.Fatal(out)
 	rootCmd.Execute()
 }
 
@@ -43,163 +104,23 @@ func init() {
 		},
 	}
 
-	type flagType func(name string, value interface{}, usage string) interface{}
-	var (
-		stringFlag flagType = func(name string, value interface{}, usage string) interface{} {
-			return rootCmd.PersistentFlags().String(name, value.(string), usage)
-		}
-		intFlag flagType = func(name string, value interface{}, usage string) interface{} {
-			return rootCmd.PersistentFlags().Int(name, value.(int), usage)
-		}
-		boolFlag flagType = func(name string, value interface{}, usage string) interface{} {
-			return rootCmd.PersistentFlags().Bool(name, value.(bool), usage)
-		}
-	)
-
-	type ericConfig struct {
-		name        string
-		envVar      string
-		flagType    flagType
-		flagDefault interface{}
-		usage       string
-	}
-
-	configOpts := []ericConfig{
-		ericConfig{name: "port", flagType: intFlag, flagDefault: 8000, usage: "tcp port to listen on for http requests"},
-		ericConfig{name: "stellar-core-db-url", envVar: "STELLAR_CORE_DATABASE_URL", flagType: stringFlag, usage: "stellar-core postgres database to connect with"},
-		ericConfig{name: "db-url", envVar: "DATABASE_URL", flagType: stringFlag, usage: "horizon postgres database to connect with"},
-		ericConfig{name: "stellar-core-url", flagType: stringFlag, usage: "stellar-core to connect with (for http commands)"},
-		ericConfig{name: "max-db-connections", flagType: intFlag, flagDefault: 20, usage: "max db connections (per DB), may need to be increased when responses are slow but DB CPU is normal"},
-		ericConfig{name: "sse-update-frequency", flagType: intFlag, flagDefault: 5}, usage: "defines how often streams should check if there's a new ledger (in seconds), may need to increase in case of big number of streams"},
-		ericConfig{name: "connection-timeout", flagType: intFlag, flagDefault: 55, usage: "defines the timeout of connection after which 504 response will be sent or stream will be closed, if Horizon is behind a load balancer with idle connection timeout, this should be set to a few seconds less that idle timeout"},
-		ericConfig{name: "per-hour-rate-limit", flagType: intFlag, flagDefault: 3600, usage: "max count of requests allowed in a one hour period, by remote ip address"},
-		ericConfig{name: "rate-limit-redis-key", flagType: stringFlag, usage: "redis key for storing rate limit data, useful when deploying a cluster of Horizons, ignored when redis-url is empty"},
-		ericConfig{name: "redis-url", flagType: stringFlag, usage: "redis to connect with, for rate limiting"},
-		// ericConfig{name: "ruby-horizon-url", flagType: 
-	},
-
-		// ericConfig{name: "friendbot-url"},
-		// ericConfig{name: "log-level"},
-		// ericConfig{name: "log-file"},
-		// ericConfig{name: "sentry-dsn"},
-		// ericConfig{name: "loggly-token"},
-		// ericConfig{name: "loggly-tag"},
-		// ericConfig{name: "tls-cert"},
-		// ericConfig{name: "tls-key"},
-		ericConfig{name: "ingest", flagType: boolFlag, flagDefault: false, usage: "causes this horizon process to ingest data from stellar-core into horizon's db"},
-		// ericConfig{name: "network-passphrase"},
-		// ericConfig{name: "history-retention-count"},
-		// ericConfig{name: "history-stale-threshold"},
-		// ericConfig{name: "skip-cursor-update"},
-		// ericConfig{name: "enable-asset-stats"},
-		// ericConfig{name: "max-path-length"},
-	}
-
 	for i := range configOpts {
-		ec := &configOpts[i]
+		co := &configOpts[i]
 
-		if ec.envVar == "" {
-			ec.envVar = strutils.KebabToConstantCase(ec.name)
-			viper.BindEnv(ec.name, ec.envVar)
+		// Bind the command line and environment variable name
+		if co.envVar == "" {
+			co.envVar = strutils.KebabToConstantCase(co.name)
+			viper.BindEnv(co.name, co.envVar)
 		}
 
-		if ec.flagType == nil {
-			stdLog.Fatal("Missing flagType in definition of config option ", ec.name)
+		// Assume any unset flag default is the empty string
+		if co.flagDefault == nil {
+			co.flagDefault = ""
 		}
 
-		if ec.flagDefault == nil {
-			ec.flagDefault = ""
-		}
-		ec.flagType(ec.name, ec.flagDefault, ec.usage)
+		// Initialise the persistent flags
+		co.flagType(co.name, co.flagDefault, co.usage)
 	}
-
-	// For testing purposes only
-	stdLog.Fatal(configOpts)
-
-	// Configure flag types
-	rootCmd.PersistentFlags().String(
-		"friendbot-url",
-		"",
-		"friendbot service to redirect to",
-	)
-
-	rootCmd.PersistentFlags().String(
-		"log-level",
-		"info",
-		"Minimum log severity (debug, info, warn, error) to log",
-	)
-
-	rootCmd.PersistentFlags().String(
-		"log-file",
-		"",
-		"Name of the file where logs will be saved (leave empty to send logs to stdout)",
-	)
-
-	rootCmd.PersistentFlags().String(
-		"sentry-dsn",
-		"",
-		"Sentry URL to which panics and errors should be reported",
-	)
-
-	rootCmd.PersistentFlags().String(
-		"loggly-token",
-		"",
-		"Loggly token, used to configure log forwarding to loggly",
-	)
-
-	rootCmd.PersistentFlags().String(
-		"loggly-tag",
-		"horizon",
-		"Tag to be added to every loggly log event",
-	)
-
-	rootCmd.PersistentFlags().String(
-		"tls-cert",
-		"",
-		"The TLS certificate file to use for securing connections to horizon",
-	)
-
-	rootCmd.PersistentFlags().String(
-		"tls-key",
-		"",
-		"The TLS private key file to use for securing connections to horizon",
-	)
-
-	rootCmd.PersistentFlags().Bool(
-		"ingest",
-		false,
-		"causes this horizon process to ingest data from stellar-core into horizon's db",
-	)
-
-	rootCmd.PersistentFlags().String(
-		"network-passphrase",
-		network.TestNetworkPassphrase,
-		"Override the network passphrase",
-	)
-
-	rootCmd.PersistentFlags().Uint(
-		"history-retention-count",
-		0,
-		"the minimum number of ledgers to maintain within horizon's history tables.  0 signifies an unlimited number of ledgers will be retained",
-	)
-
-	rootCmd.PersistentFlags().Uint(
-		"history-stale-threshold",
-		0,
-		"the maximum number of ledgers the history db is allowed to be out of date from the connected stellar-core db before horizon considers history stale",
-	)
-
-	rootCmd.PersistentFlags().Bool(
-		"enable-asset-stats",
-		false,
-		"enables asset stats during the ingestion and expose `/assets` endpoint,  Enabling it has a negative impact on CPU",
-	)
-
-	rootCmd.PersistentFlags().Uint(
-		"max-path-length",
-		4,
-		"the maximum number of assets on the path in `/paths` endpoint",
-	)
 
 	rootCmd.AddCommand(dbCmd)
 
@@ -220,21 +141,13 @@ func initApp(cmd *cobra.Command, args []string) *horizon.App {
 }
 
 func initConfig() {
-	if viper.GetString("db-url") == "" {
-		stdLog.Fatal("Invalid config: db-url is blank.  Please specify --db-url on the command line or set the DATABASE_URL environment variable.")
+	for i := range configOpts {
+		co := &configOpts[i]
+		co.require()
 	}
-
-	if viper.GetString("stellar-core-db-url") == "" {
-		stdLog.Fatal("Invalid config: stellar-core-db-url is blank.  Please specify --stellar-core-db-url on the command line or set the STELLAR_CORE_DATABASE_URL environment variable.")
-	}
-
-	if viper.GetString("stellar-core-url") == "" {
-		stdLog.Fatal("Invalid config: stellar-core-url is blank.  Please specify --stellar-core-url on the command line or set the STELLAR_CORE_URL environment variable.")
-	}
-
-	if viper.GetString("network-passphrase") == "" {
-		stdLog.Fatal("Invalid config: network-passphrase is blank.  Please specify --network-passphrase on the command line or set the NETWORK_PASSPHRASE environment variable.")
-	}
+	// For testing purposes only
+	//stdLog.Fatal(configOpts)
+	stdLog.Fatal("Died here")
 
 	migrationsToApplyUp := schema.GetMigrationsUp(viper.GetString("db-url"))
 	if len(migrationsToApplyUp) > 0 {
