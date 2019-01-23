@@ -33,60 +33,6 @@ func init() {
 	viper.SetDefault("port", 8000)
 	viper.SetDefault("history-retention-count", 0)
 
-	configOpts := []string{
-		"port",
-		// viper.BindEnv("db-url", "DATABASE_URL")
-		// viper.BindEnv("stellar-core-db-url", "STELLAR_CORE_DATABASE_URL")
-		"stellar-core-url",
-		"max-db-connections",
-		"sse-update-frequency",
-		"connection-timeout",
-		"per-hour-rate-limit",
-		"rate-limit-redis-key",
-		"redis-url",
-		"ruby-horizon-url",
-		"friendbot-url",
-		"log-level",
-		"log-file",
-		"sentry-dsn",
-		"loggly-token",
-		"loggly-tag",
-		"tls-cert",
-		"tls-key",
-		"ingest",
-		"network-passphrase",
-		"history-retention-count",
-		"history-stale-threshold",
-		"skip-cursor-update",
-		"enable-asset-stats",
-		"max-path-length",
-	}
-
-	type ericConfig struct {
-		name   string
-		envVar string
-	}
-
-	allConfigs := make([]ericConfig, 50)
-
-	for i, option := range configOpts {
-		ec := ericConfig{
-			name:   option,
-			envVar: strutils.KebabToConstantCase(option),
-		}
-		allConfigs[i] = ec
-	}
-
-	for _, ec := range allConfigs {
-		viper.BindEnv(ec.name, ec.envVar)
-	}
-
-	viper.BindEnv("db-url", "DATABASE_URL")
-	viper.BindEnv("stellar-core-db-url", "STELLAR_CORE_DATABASE_URL")
-
-	// For testing purposes only
-	stdLog.Fatal(allConfigs)
-
 	rootCmd = &cobra.Command{
 		Use:   "horizon",
 		Short: "client-facing api server for the stellar network",
@@ -97,67 +43,80 @@ func init() {
 		},
 	}
 
+	type flagType func(name string, value interface{}, usage string) interface{}
+	var (
+		stringFlag flagType = func(name string, value interface{}, usage string) interface{} {
+			return rootCmd.PersistentFlags().String(name, value.(string), usage)
+		}
+		intFlag flagType = func(name string, value interface{}, usage string) interface{} {
+			return rootCmd.PersistentFlags().Int(name, value.(int), usage)
+		}
+		boolFlag flagType = func(name string, value interface{}, usage string) interface{} {
+			return rootCmd.PersistentFlags().Bool(name, value.(bool), usage)
+		}
+	)
+
+	type ericConfig struct {
+		name        string
+		envVar      string
+		flagType    flagType
+		flagDefault interface{}
+		usage       string
+	}
+
+	configOpts := []ericConfig{
+		ericConfig{name: "port", flagType: intFlag, flagDefault: 8000, usage: "tcp port to listen on for http requests"},
+		ericConfig{name: "stellar-core-db-url", envVar: "STELLAR_CORE_DATABASE_URL", flagType: stringFlag, usage: "stellar-core postgres database to connect with"},
+		ericConfig{name: "db-url", envVar: "DATABASE_URL", flagType: stringFlag, usage: "horizon postgres database to connect with"},
+		ericConfig{name: "stellar-core-url", flagType: stringFlag, usage: "stellar-core to connect with (for http commands)"},
+		ericConfig{name: "max-db-connections", flagType: intFlag, flagDefault: 20, usage: "max db connections (per DB), may need to be increased when responses are slow but DB CPU is normal"},
+		ericConfig{name: "sse-update-frequency", flagType: intFlag, flagDefault: 5}, usage: "defines how often streams should check if there's a new ledger (in seconds), may need to increase in case of big number of streams"},
+		ericConfig{name: "connection-timeout", flagType: intFlag, flagDefault: 55, usage: "defines the timeout of connection after which 504 response will be sent or stream will be closed, if Horizon is behind a load balancer with idle connection timeout, this should be set to a few seconds less that idle timeout"},
+		ericConfig{name: "per-hour-rate-limit", flagType: intFlag, flagDefault: 3600, usage: "max count of requests allowed in a one hour period, by remote ip address"},
+		ericConfig{name: "rate-limit-redis-key", flagType: stringFlag, usage: "redis key for storing rate limit data, useful when deploying a cluster of Horizons, ignored when redis-url is empty"},
+		ericConfig{name: "redis-url", flagType: stringFlag, usage: "redis to connect with, for rate limiting"},
+		// ericConfig{name: "ruby-horizon-url", flagType: 
+	},
+
+		// ericConfig{name: "friendbot-url"},
+		// ericConfig{name: "log-level"},
+		// ericConfig{name: "log-file"},
+		// ericConfig{name: "sentry-dsn"},
+		// ericConfig{name: "loggly-token"},
+		// ericConfig{name: "loggly-tag"},
+		// ericConfig{name: "tls-cert"},
+		// ericConfig{name: "tls-key"},
+		ericConfig{name: "ingest", flagType: boolFlag, flagDefault: false, usage: "causes this horizon process to ingest data from stellar-core into horizon's db"},
+		// ericConfig{name: "network-passphrase"},
+		// ericConfig{name: "history-retention-count"},
+		// ericConfig{name: "history-stale-threshold"},
+		// ericConfig{name: "skip-cursor-update"},
+		// ericConfig{name: "enable-asset-stats"},
+		// ericConfig{name: "max-path-length"},
+	}
+
+	for i := range configOpts {
+		ec := &configOpts[i]
+
+		if ec.envVar == "" {
+			ec.envVar = strutils.KebabToConstantCase(ec.name)
+			viper.BindEnv(ec.name, ec.envVar)
+		}
+
+		if ec.flagType == nil {
+			stdLog.Fatal("Missing flagType in definition of config option ", ec.name)
+		}
+
+		if ec.flagDefault == nil {
+			ec.flagDefault = ""
+		}
+		ec.flagType(ec.name, ec.flagDefault, ec.usage)
+	}
+
+	// For testing purposes only
+	stdLog.Fatal(configOpts)
+
 	// Configure flag types
-	rootCmd.PersistentFlags().String(
-		"db-url",
-		"",
-		"horizon postgres database to connect with",
-	)
-
-	rootCmd.PersistentFlags().String(
-		"stellar-core-db-url",
-		"",
-		"stellar-core postgres database to connect with",
-	)
-
-	rootCmd.PersistentFlags().String(
-		"stellar-core-url",
-		"",
-		"stellar-core to connect with (for http commands)",
-	)
-
-	rootCmd.PersistentFlags().Int(
-		"port",
-		8000,
-		"tcp port to listen on for http requests",
-	)
-
-	rootCmd.PersistentFlags().Int(
-		"per-hour-rate-limit",
-		3600,
-		"max count of requests allowed in a one hour period, by remote ip address",
-	)
-
-	rootCmd.PersistentFlags().Int(
-		"max-db-connections",
-		20,
-		"max db connections (per DB), may need to be increased when responses are slow but DB CPU is normal",
-	)
-
-	rootCmd.PersistentFlags().Int(
-		"sse-update-frequency",
-		5,
-		"defines how often streams should check if there's a new ledger (in seconds), may need to increase in case of big number of streams",
-	)
-
-	rootCmd.PersistentFlags().Int(
-		"connection-timeout",
-		55,
-		"defines the timeout of connection after which 504 response will be sent or stream will be closed, if Horizon is behind a load balancer with idle connection timeout, this should be set to a few seconds less that idle timeout",
-	)
-
-	rootCmd.PersistentFlags().String(
-		"rate-limit-redis-key",
-		"",
-		"redis key for storing rate limit data, useful when deploying a cluster of Horizons, ignored when redis-url is empty",
-	)
-
-	rootCmd.PersistentFlags().String(
-		"redis-url",
-		"",
-		"redis to connect with, for rate limiting",
-	)
-
 	rootCmd.PersistentFlags().String(
 		"friendbot-url",
 		"",
