@@ -70,7 +70,7 @@ var configOpts = []configOption{
 	configOption{name: "rate-limit-redis-key", flagType: stringFlag, usage: "redis key for storing rate limit data, useful when deploying a cluster of Horizons, ignored when redis-url is empty"},
 	configOption{name: "redis-url", flagType: stringFlag, usage: "redis to connect with, for rate limiting"},
 	configOption{name: "friendbot-url", flagType: stringFlag, usage: "friendbot service to redirect to"},
-	configOption{name: "log-level", flagType: stringFlag, usage: "Minimum log severity (debug, info, warn, error) to log"},
+	configOption{name: "log-level", flagType: stringFlag, flagDefault: "info", usage: "Minimum log severity (debug, info, warn, error) to log"},
 	configOption{name: "log-file", flagType: stringFlag, usage: "Name of the file where logs will be saved (leave empty to send logs to stdout)"},
 	configOption{name: "sentry-dsn", flagType: stringFlag, usage: "Sentry URL to which panics and errors should be reported"},
 	configOption{name: "loggly-token", flagType: stringFlag, usage: "Loggly token, used to configure log forwarding to loggly"},
@@ -145,9 +145,6 @@ func initConfig() {
 		co := &configOpts[i]
 		co.require()
 	}
-	// For testing purposes only
-	//stdLog.Fatal(configOpts)
-	stdLog.Fatal("Died here")
 
 	migrationsToApplyUp := schema.GetMigrationsUp(viper.GetString("db-url"))
 	if len(migrationsToApplyUp) > 0 {
@@ -169,6 +166,9 @@ func initConfig() {
 	if err != nil {
 		stdLog.Fatalf("Could not parse log-level: %v", viper.GetString("log-level"))
 	}
+	// For testing purposes only
+	//stdLog.Fatal(configOpts)
+	stdLog.Fatal("Died here")
 
 	log.DefaultLogger.Level = ll
 
