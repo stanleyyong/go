@@ -20,6 +20,7 @@ import (
 
 var app *horizon.App
 var config horizon.Config
+var c horizon.Config
 
 var rootCmd *cobra.Command
 
@@ -48,6 +49,7 @@ type configOption struct {
 	required    bool
 	usage       string
 	validator   func(*horizon.Config)
+	configKey   interface{}
 }
 
 func (co *configOption) require() error {
@@ -58,27 +60,48 @@ func (co *configOption) require() error {
 	return nil
 }
 
-func (co *configOption) validateAndSet(config *horizon.Config) error {
+func (co *configOption) validateAndSet(c *horizon.Config) error {
 	if co.validator != nil {
-		co.validator(config)
+		co.validator(c)
+	}
+
+	if co.configKey != nil {
+		co.setValue()
 	}
 	return nil
 }
 
-func validateLogLevel(config *horizon.Config) {
+func (co *configOption) setValue() {
+	// c.Port = viper.GetInt("port")
+	if co.configKey != nil {
+		switch co.flagDefault.(type) {
+		case string:
+			*(co.configKey.(*string)) = viper.GetString(co.name)
+		case int:
+			*(co.configKey.(*int)) = viper.GetInt(co.name)
+		case bool:
+			*(co.configKey.(*bool)) = viper.GetBool(co.name)
+		}
+		// TODO: case uint, case duration
+	}
+}
+
+func validateLogLevel(c *horizon.Config) {
 	ll, err := logrus.ParseLevel(viper.GetString("log-level"))
 	if err != nil {
 		stdLog.Fatalf("Could not parse log-level: %v", viper.GetString("log-level"))
 	}
 	log.DefaultLogger.Level = ll
-	config.LogLevel = ll
+	c.LogLevel = ll
 }
 
 // TODO: Fix capitalisation on usage string
+// TODO: Add flag defaults for all, remove flagType
+// TODO: Write func to choose between flagTypes based on flagDefault
 var configOpts = []configOption{
-	configOption{name: "port", flagType: intFlag, flagDefault: 8000, usage: "tcp port to listen on for http requests"},
-	configOption{name: "stellar-core-db-url", envVar: "STELLAR_CORE_DATABASE_URL", flagType: stringFlag, required: true, usage: "stellar-core postgres database to connect with"},
-	configOption{name: "db-url", envVar: "DATABASE_URL", flagType: stringFlag, required: true, usage: "horizon postgres database to connect with"},
+	configOption{name: "port", configKey: &c.Port, flagType: intFlag, flagDefault: 8000, usage: "tcp port to listen on for http requests"},
+	configOption{name: "stellar-core-db-url", envVar: "STELLAR_CORE_DATABASE_URL", configKey: &c.StellarCoreDatabaseURL, flagType: stringFlag, flagDefault: "", required: true, usage: "stellar-core postgres database to connect with"},
+	configOption{name: "db-url", envVar: "DATABASE_URL", configKey: &c.DatabaseURL, flagType: stringFlag, flagDefault: "", required: true, usage: "horizon postgres database to connect with"},
 	configOption{name: "stellar-core-url", flagType: stringFlag, required: true, usage: "stellar-core to connect with (for http commands)"},
 	configOption{name: "max-db-connections", flagType: intFlag, flagDefault: 20, usage: "max db connections (per DB), may need to be increased when responses are slow but DB CPU is normal"},
 	configOption{name: "sse-update-frequency", flagType: intFlag, flagDefault: 5, usage: "defines how often streams should check if there's a new ledger (in seconds), may need to increase in case of big number of streams"},
@@ -182,7 +205,7 @@ func initConfig() {
 	// Run validation checks
 	for i := range configOpts {
 		co := &configOpts[i]
-		co.validateAndSet(&config)
+		co.validateAndSet(&c)
 	}
 	// Validate log level
 	ll, err := logrus.ParseLevel(viper.GetString("log-level"))
@@ -193,7 +216,7 @@ func initConfig() {
 
 	// For testing purposes only
 	//stdLog.Fatal(configOpts)
-	stdLog.Fatal(config.LogLevel)
+	stdLog.Fatal(c)
 	// stdLog.Fatal("Died here")
 
 	// Write to a log file, if a file name was provided
