@@ -47,6 +47,7 @@ type configOption struct {
 	flagDefault interface{}
 	required    bool
 	usage       string
+	validator   func(*horizon.Config)
 }
 
 func (co *configOption) require() error {
@@ -55,6 +56,22 @@ func (co *configOption) require() error {
 		stdLog.Fatalf("Invalid config: %s is blank. Please specify --%s on the command line or set the %s environment variable.", co.name, co.name, co.envVar)
 	}
 	return nil
+}
+
+func (co *configOption) validateAndSet(config *horizon.Config) error {
+	if co.validator != nil {
+		co.validator(config)
+	}
+	return nil
+}
+
+func validateLogLevel(config *horizon.Config) {
+	ll, err := logrus.ParseLevel(viper.GetString("log-level"))
+	if err != nil {
+		stdLog.Fatalf("Could not parse log-level: %v", viper.GetString("log-level"))
+	}
+	log.DefaultLogger.Level = ll
+	config.LogLevel = ll
 }
 
 // TODO: Fix capitalisation on usage string
@@ -70,7 +87,7 @@ var configOpts = []configOption{
 	configOption{name: "rate-limit-redis-key", flagType: stringFlag, usage: "redis key for storing rate limit data, useful when deploying a cluster of Horizons, ignored when redis-url is empty"},
 	configOption{name: "redis-url", flagType: stringFlag, usage: "redis to connect with, for rate limiting"},
 	configOption{name: "friendbot-url", flagType: stringFlag, usage: "friendbot service to redirect to"},
-	configOption{name: "log-level", flagType: stringFlag, flagDefault: "info", usage: "Minimum log severity (debug, info, warn, error) to log"},
+	configOption{name: "log-level", flagType: stringFlag, flagDefault: "info", usage: "Minimum log severity (debug, info, warn, error) to log", validator: validateLogLevel},
 	configOption{name: "log-file", flagType: stringFlag, usage: "Name of the file where logs will be saved (leave empty to send logs to stdout)"},
 	configOption{name: "sentry-dsn", flagType: stringFlag, usage: "Sentry URL to which panics and errors should be reported"},
 	configOption{name: "loggly-token", flagType: stringFlag, usage: "Loggly token, used to configure log forwarding to loggly"},
@@ -141,6 +158,7 @@ func initApp(cmd *cobra.Command, args []string) *horizon.App {
 }
 
 func initConfig() {
+	// Check all required args were provided
 	for i := range configOpts {
 		co := &configOpts[i]
 		co.require()
@@ -161,17 +179,24 @@ func initConfig() {
 		os.Exit(1)
 	}
 
+	// Run validation checks
+	for i := range configOpts {
+		co := &configOpts[i]
+		co.validateAndSet(&config)
+	}
+	// Validate log level
 	ll, err := logrus.ParseLevel(viper.GetString("log-level"))
-
 	if err != nil {
 		stdLog.Fatalf("Could not parse log-level: %v", viper.GetString("log-level"))
 	}
-	// For testing purposes only
-	//stdLog.Fatal(configOpts)
-	stdLog.Fatal("Died here")
-
 	log.DefaultLogger.Level = ll
 
+	// For testing purposes only
+	//stdLog.Fatal(configOpts)
+	stdLog.Fatal(config.LogLevel)
+	// stdLog.Fatal("Died here")
+
+	// Write to a log file, if a file name was provided
 	lf := viper.GetString("log-file")
 	if lf != "" {
 		logFile, err := os.OpenFile(lf, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -182,8 +207,8 @@ func initConfig() {
 		}
 	}
 
+	// Ensure that both a TLS cert and key are provided, if either is provided
 	cert, key := viper.GetString("tls-cert"), viper.GetString("tls-key")
-
 	switch {
 	case cert != "" && key == "":
 		stdLog.Fatal("Invalid TLS config: key not configured")
@@ -191,6 +216,7 @@ func initConfig() {
 		stdLog.Fatal("Invalid TLS config: cert not configured")
 	}
 
+	// Validate the friendbotURL is a URL, if it was provided
 	var friendbotURL *url.URL
 	friendbotURLString := viper.GetString("friendbot-url")
 	if friendbotURLString != "" {
@@ -200,6 +226,7 @@ func initConfig() {
 		}
 	}
 
+	// Set rate and burst limiting if provided
 	var rateLimit *throttled.RateQuota = nil
 	perHourRateLimit := viper.GetInt("per-hour-rate-limit")
 	if perHourRateLimit != 0 {
