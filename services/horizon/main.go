@@ -19,9 +19,7 @@ import (
 )
 
 var app *horizon.App
-var config horizon.Config
-var c horizon.Config
-
+var c, config horizon.Config
 var rootCmd *cobra.Command
 
 // Counter to check that either neither or both TLS flags are provided
