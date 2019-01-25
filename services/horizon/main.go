@@ -160,12 +160,12 @@ func setRateLimit(co *configOption) {
 	}
 }
 
-// incrementTLSFlag tracks TLS command line options for later validation
+// incrementTLSFlag tracks TLS command line options for later validation, and stores the provided TLS value.
 func incrementTLSFlag(co *configOption) {
-	if viper.GetString(co.name) != "" {
+	tls := viper.GetString(co.name)
+	if tls != "" {
 		tlsProvided++
-
-		//TODO: Store the TLS value
+		*(co.configKey.(*string)) = tls
 	}
 }
 
@@ -176,11 +176,10 @@ func validateTLS(tlsProvided int) {
 	}
 }
 
-// TODO: Fix capitalisation on usage string
-// TODO: Add flag defaults for all, remove flagType
-// TODO: Write func to choose between flagTypes based on flagDefault
 // TODO: Test all options
 // TODO: Verify uints work as expected (pretty sure they need validators adding)
+// TODO: Clean up original config custom code after verification
+// TODO: Config = c
 var configOpts = []configOption{
 	configOption{name: "db-url", envVar: "DATABASE_URL", configKey: &c.DatabaseURL, flagDefault: "", required: true, usage: "horizon postgres database to connect with"},
 	configOption{name: "stellar-core-db-url", envVar: "STELLAR_CORE_DATABASE_URL", configKey: &c.StellarCoreDatabaseURL, flagDefault: "", required: true, usage: "stellar-core postgres database to connect with"},
@@ -193,15 +192,15 @@ var configOpts = []configOption{
 	configOption{name: "rate-limit-redis-key", configKey: &c.RateLimitRedisKey, flagDefault: "", usage: "redis key for storing rate limit data, useful when deploying a cluster of Horizons, ignored when redis-url is empty"},
 	configOption{name: "redis-url", configKey: &c.RedisURL, flagDefault: "", usage: "redis to connect with, for rate limiting"},
 	configOption{name: "friendbot-url", configKey: &c.FriendbotURL, flagDefault: "", customSetValue: setURL, usage: "friendbot service to redirect to"},
-	configOption{name: "log-level", configKey: &c.LogLevel, flagDefault: "info", customSetValue: setLogLevel, usage: "Minimum log severity (debug, info, warn, error) to log"},
+	configOption{name: "log-level", configKey: &c.LogLevel, flagDefault: "info", customSetValue: setLogLevel, usage: "minimum log severity (debug, info, warn, error) to log"},
 	configOption{name: "log-file", configKey: &c.LogFile, flagDefault: "", customSetValue: setLogFile, usage: "Name of the file where logs will be saved (leave empty to send logs to stdout)"},
 	configOption{name: "max-path-length", configKey: &c.MaxPathLength, flagDefault: uint(4), usage: "the maximum number of assets on the path in `/paths` endpoint"},
 	configOption{name: "network-passphrase", configKey: &c.NetworkPassphrase, flagDefault: network.TestNetworkPassphrase, required: true, usage: "Override the network passphrase"},
 	configOption{name: "sentry-dsn", configKey: &c.SentryDSN, flagDefault: "", usage: "Sentry URL to which panics and errors should be reported"},
 	configOption{name: "loggly-token", configKey: &c.LogglyToken, flagDefault: "", usage: "Loggly token, used to configure log forwarding to loggly"},
 	configOption{name: "loggly-tag", configKey: &c.LogglyTag, flagDefault: "horizon", usage: "Tag to be added to every loggly log event"},
-	configOption{name: "tls-cert", configKey: &c.TLSCert, flagDefault: "", customSetValue: incrementTLSFlag, usage: "The TLS certificate file to use for securing connections to horizon"},
-	configOption{name: "tls-key", configKey: &c.TLSKey, flagDefault: "", customSetValue: incrementTLSFlag, usage: "The TLS private key file to use for securing connections to horizon"},
+	configOption{name: "tls-cert", configKey: &c.TLSCert, flagDefault: "", customSetValue: incrementTLSFlag, usage: "TLS certificate file to use for securing connections to horizon"},
+	configOption{name: "tls-key", configKey: &c.TLSKey, flagDefault: "", customSetValue: incrementTLSFlag, usage: "TLS private key file to use for securing connections to horizon"},
 	configOption{name: "ingest", configKey: &c.Ingest, flagDefault: false, usage: "causes this horizon process to ingest data from stellar-core into horizon's db"},
 	configOption{name: "history-retention-count", configKey: &c.HistoryRetentionCount, flagDefault: uint(0), usage: "the minimum number of ledgers to maintain within horizon's history tables.  0 signifies an unlimited number of ledgers will be retained"},
 	configOption{name: "history-stale-threshold", configKey: &c.StaleThreshold, flagDefault: uint(0), usage: "the maximum number of ledgers the history db is allowed to be out of date from the connected stellar-core db before horizon considers history stale"},
