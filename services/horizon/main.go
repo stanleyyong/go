@@ -44,35 +44,38 @@ var (
 )
 
 type configOption struct {
-	name        string
-	envVar      string
-	flagType    flagType
-	flagDefault interface{}
-	required    bool
-	usage       string
-	validator   func(*configOption)
-	configKey   interface{}
+	name           string
+	envVar         string
+	flagType       flagType
+	flagDefault    interface{}
+	required       bool
+	usage          string
+	customSetValue func(*configOption)
+	configKey      interface{}
 }
 
-func (co *configOption) require() error {
+// require checks that a required string configuration option is not empty, raising a user error if it is.
+func (co *configOption) require() {
 	stdLog.Print(co.name, " ", co.required, " ", viper.GetString(co.name))
 	if co.required == true && viper.GetString(co.name) == "" {
 		stdLog.Fatalf("Invalid config: %s is blank. Please specify --%s on the command line or set the %s environment variable.", co.name, co.name, co.envVar)
 	}
-	return nil
 }
 
-func (co *configOption) validateAndSet(c *horizon.Config) error {
-	if co.validator != nil {
-		co.validator(co)
+// setValue sets a value in the global config, using a custom function, if one was provided.
+func (co *configOption) setValue(c *horizon.Config) error {
+	// Use a custom setting function, if one is provided
+	if co.customSetValue != nil {
+		co.customSetValue(co)
+		// Otherwise, just set the provided arg directly
 	} else if co.configKey != nil {
-		co.setValue()
+		co.setSimpleValue()
 	}
 	return nil
 }
 
-func (co *configOption) setValue() {
-	// c.Port = viper.GetInt("port")
+// setSimpleValue sets the value of a configOption's configKey, based on the configOption's default type.
+func (co *configOption) setSimpleValue() {
 	if co.configKey != nil {
 		switch co.flagDefault.(type) {
 		case string:
@@ -86,6 +89,7 @@ func (co *configOption) setValue() {
 	}
 }
 
+// setFlag sets the correct pFlag type, based on the configOption's default type.
 func (co *configOption) setFlag() {
 	switch co.flagDefault.(type) {
 	case string:
@@ -95,39 +99,42 @@ func (co *configOption) setFlag() {
 	case bool:
 		boolFlag(co.name, co.flagDefault, co.usage)
 	}
-
 }
 
+// inSeconds is a simple helper method to convert an int to a duration in seconds.
 func inSeconds(nSeconds int) time.Duration {
 	return time.Duration(nSeconds) * time.Second
 }
 
-func validateDuration(co *configOption) {
+// setDuration converts a command line int to a duration, and stores it in the final config.
+func setDuration(co *configOption) {
 	*(co.configKey.(*time.Duration)) = inSeconds(viper.GetInt(co.name))
 }
 
-func validateURL(co *configOption) {
-	friendbotURLString := viper.GetString(co.name)
-	if friendbotURLString != "" {
-		friendbotURL, err := url.Parse(friendbotURLString)
+// setURL converts a command line string to a URL, and stores it in the final config.
+func setURL(co *configOption) {
+	urlString := viper.GetString(co.name)
+	if urlString != "" {
+		urlType, err := url.Parse(urlString)
 		if err != nil {
-			stdLog.Fatalf("Unable to parse URL: %s/%v", friendbotURLString, err)
+			stdLog.Fatalf("Unable to parse URL: %s/%v", urlString, err)
 		}
-		*(co.configKey.(*url.URL)) = *friendbotURL
+		*(co.configKey.(*url.URL)) = *urlType
 	}
 }
 
-func validateLogLevel(co *configOption) {
-	ll, err := logrus.ParseLevel(viper.GetString("log-level"))
+// setLogLevel validates and sets the log level globally and in the final config.
+func setLogLevel(co *configOption) {
+	ll, err := logrus.ParseLevel(viper.GetString(co.name))
 	if err != nil {
-		stdLog.Fatalf("Could not parse log-level: %v", viper.GetString("log-level"))
+		stdLog.Fatalf("Could not parse log-level: %v", viper.GetString(co.name))
 	}
 	log.DefaultLogger.Level = ll
 	*(co.configKey.(*logrus.Level)) = ll
 }
 
-// validateLogFile writes to a log file, if a file name was provided
-func validateLogFile(co *configOption) {
+// setLogFile configures a log file for writing, ands sets the file name in the final config.
+func setLogFile(co *configOption) {
 	lf := viper.GetString("log-file")
 	if lf != "" {
 		logFile, err := os.OpenFile(lf, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -140,20 +147,8 @@ func validateLogFile(co *configOption) {
 	}
 }
 
-func handleTLS(co *configOption) {
-	if viper.GetString(co.name) != "" {
-		tlsProvided++
-	}
-}
-
-// validateTLS ensures that both a TLS cert and key are provided, if either is provided
-func validateTLS(co *configOption) {
-	if tlsProvided == 1 {
-		stdLog.Fatal("Invalid TLS config: both key and cert must be configured")
-	}
-}
-
-func validateRateLimit(co *configOption) {
+// setRateLimit converts a command line rate limit, and sets rate and burst limiting in the final config.
+func setRateLimit(co *configOption) {
 	var rateLimit *throttled.RateQuota = nil
 	perHourRateLimit := viper.GetInt(co.name)
 	if perHourRateLimit != 0 {
@@ -164,6 +159,22 @@ func validateRateLimit(co *configOption) {
 		// TODO: Test this - does it work?
 		co.configKey = rateLimit
 		// *(co.configKey.(throttled.RateQuota)) = rateLimit
+	}
+}
+
+// incrementTLSFlag tracks TLS command line options for later validation
+func incrementTLSFlag(co *configOption) {
+	if viper.GetString(co.name) != "" {
+		tlsProvided++
+
+		//TODO: Store the TLS value
+	}
+}
+
+// validateTLS ensures that both a TLS cert and key are provided, if either is provided
+func validateTLS(tlsProvided int) {
+	if tlsProvided == 1 {
+		stdLog.Fatal("Invalid TLS config: both key and cert must be configured")
 	}
 }
 
@@ -178,19 +189,19 @@ var configOpts = []configOption{
 	configOption{name: "db-url", envVar: "DATABASE_URL", configKey: &c.DatabaseURL, flagDefault: "", required: true, usage: "horizon postgres database to connect with"},
 	configOption{name: "stellar-core-url", configKey: &c.StellarCoreURL, flagDefault: "", required: true, usage: "stellar-core to connect with (for http commands)"},
 	configOption{name: "max-db-connections", configKey: &c.MaxDBConnections, flagDefault: 20, usage: "max db connections (per DB), may need to be increased when responses are slow but DB CPU is normal"},
-	configOption{name: "sse-update-frequency", configKey: &c.SSEUpdateFrequency, flagDefault: 5, validator: validateDuration, usage: "defines how often streams should check if there's a new ledger (in seconds), may need to increase in case of big number of streams"},
-	configOption{name: "connection-timeout", configKey: &c.ConnectionTimeout, flagDefault: 55, validator: validateDuration, usage: "defines the timeout of connection after which 504 response will be sent or stream will be closed, if Horizon is behind a load balancer with idle connection timeout, this should be set to a few seconds less that idle timeout"},
-	configOption{name: "per-hour-rate-limit", configKey: &c.RateLimit, flagDefault: 3600, validator: validateRateLimit, usage: "max count of requests allowed in a one hour period, by remote ip address"},
+	configOption{name: "sse-update-frequency", configKey: &c.SSEUpdateFrequency, flagDefault: 5, customSetValue: setDuration, usage: "defines how often streams should check if there's a new ledger (in seconds), may need to increase in case of big number of streams"},
+	configOption{name: "connection-timeout", configKey: &c.ConnectionTimeout, flagDefault: 55, customSetValue: setDuration, usage: "defines the timeout of connection after which 504 response will be sent or stream will be closed, if Horizon is behind a load balancer with idle connection timeout, this should be set to a few seconds less that idle timeout"},
+	configOption{name: "per-hour-rate-limit", configKey: &c.RateLimit, flagDefault: 3600, customSetValue: setRateLimit, usage: "max count of requests allowed in a one hour period, by remote ip address"},
 	configOption{name: "rate-limit-redis-key", configKey: &c.RateLimitRedisKey, flagDefault: "", usage: "redis key for storing rate limit data, useful when deploying a cluster of Horizons, ignored when redis-url is empty"},
 	configOption{name: "redis-url", configKey: &c.RedisURL, flagDefault: "", usage: "redis to connect with, for rate limiting"},
-	configOption{name: "friendbot-url", configKey: &c.FriendbotURL, flagDefault: "", validator: validateURL, usage: "friendbot service to redirect to"},
-	configOption{name: "log-level", configKey: &c.LogLevel, flagDefault: "info", validator: validateLogLevel, usage: "Minimum log severity (debug, info, warn, error) to log"},
-	configOption{name: "log-file", configKey: &c.LogFile, flagDefault: "", validator: validateLogFile, usage: "Name of the file where logs will be saved (leave empty to send logs to stdout)"},
+	configOption{name: "friendbot-url", configKey: &c.FriendbotURL, flagDefault: "", customSetValue: setURL, usage: "friendbot service to redirect to"},
+	configOption{name: "log-level", configKey: &c.LogLevel, flagDefault: "info", customSetValue: setLogLevel, usage: "Minimum log severity (debug, info, warn, error) to log"},
+	configOption{name: "log-file", configKey: &c.LogFile, flagDefault: "", customSetValue: setLogFile, usage: "Name of the file where logs will be saved (leave empty to send logs to stdout)"},
 	configOption{name: "sentry-dsn", configKey: &c.SentryDSN, flagDefault: "", usage: "Sentry URL to which panics and errors should be reported"},
 	configOption{name: "loggly-token", configKey: &c.LogglyToken, flagDefault: "", usage: "Loggly token, used to configure log forwarding to loggly"},
 	configOption{name: "loggly-tag", configKey: &c.LogglyTag, flagDefault: "horizon", usage: "Tag to be added to every loggly log event"},
-	configOption{name: "tls-cert", configKey: &c.TLSCert, flagDefault: "", validator: handleTLS, usage: "The TLS certificate file to use for securing connections to horizon"},
-	configOption{name: "tls-key", configKey: &c.TLSKey, flagDefault: "", validator: handleTLS, usage: "The TLS private key file to use for securing connections to horizon"},
+	configOption{name: "tls-cert", configKey: &c.TLSCert, flagDefault: "", customSetValue: incrementTLSFlag, usage: "The TLS certificate file to use for securing connections to horizon"},
+	configOption{name: "tls-key", configKey: &c.TLSKey, flagDefault: "", customSetValue: incrementTLSFlag, usage: "The TLS private key file to use for securing connections to horizon"},
 	configOption{name: "ingest", configKey: &c.Ingest, flagDefault: false, usage: "causes this horizon process to ingest data from stellar-core into horizon's db"},
 	configOption{name: "network-passphrase", configKey: &c.NetworkPassphrase, flagDefault: network.TestNetworkPassphrase, required: true, usage: "Override the network passphrase"},
 	configOption{name: "history-retention-count", configKey: &c.HistoryRetentionCount, flagDefault: uint(0), usage: "the minimum number of ledgers to maintain within horizon's history tables.  0 signifies an unlimited number of ledgers will be retained"},
@@ -279,7 +290,7 @@ func initConfig() {
 	// Run validation checks
 	for i := range configOpts {
 		co := &configOpts[i]
-		co.validateAndSet(&c)
+		co.setValue(&c)
 	}
 	// Validate log level
 	ll, err := logrus.ParseLevel(viper.GetString("log-level"))
@@ -287,6 +298,8 @@ func initConfig() {
 		stdLog.Fatalf("Could not parse log-level: %v", viper.GetString("log-level"))
 	}
 	log.DefaultLogger.Level = ll
+
+	validateTLS(tlsProvided)
 
 	// For testing purposes only
 	//stdLog.Fatal(configOpts)
