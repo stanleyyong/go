@@ -87,7 +87,8 @@ func (co *configOption) setSimpleValue() {
 			*(co.configKey.(*int)) = viper.GetInt(co.name)
 		case bool:
 			*(co.configKey.(*bool)) = viper.GetBool(co.name)
-			// TODO: case uint, case duration
+		case uint:
+			*(co.configKey.(*uint)) = uint(viper.GetInt(co.name))
 		}
 	}
 }
@@ -101,6 +102,8 @@ func (co *configOption) setFlag() {
 		intFlag(co.name, co.flagDefault, co.usage)
 	case bool:
 		boolFlag(co.name, co.flagDefault, co.usage)
+	case uint:
+		uintFlag(co.name, co.flagDefault, co.usage)
 	}
 }
 
@@ -177,7 +180,6 @@ func validateTLS(tlsProvided int) {
 }
 
 // TODO: Test all options
-// TODO: Verify uints work as expected (pretty sure they need validators adding)
 // TODO: Clean up original config custom code after verification
 // TODO: Config = c
 var configOpts = []configOption{
@@ -233,11 +235,6 @@ func init() {
 		if co.envVar == "" {
 			co.envVar = strutils.KebabToConstantCase(co.name)
 			viper.BindEnv(co.name, co.envVar)
-		}
-
-		// Assume any unset flag default is the empty string
-		if co.flagDefault == nil {
-			co.flagDefault = ""
 		}
 
 		// Initialise the persistent flags
@@ -300,7 +297,8 @@ func initConfig() {
 
 	// For testing purposes only
 	//stdLog.Fatal(configOpts)
-	stdLog.Fatal(c)
+	stdLog.Fatalf("MaxPathLength %v (%T)", c.MaxPathLength, c.MaxPathLength)
+	// stdLog.Fatal(c)
 	// stdLog.Fatal("Died here")
 
 	// Write to a log file, if a file name was provided
