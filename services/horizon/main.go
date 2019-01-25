@@ -59,7 +59,6 @@ type configOption struct {
 
 // require checks that a required string configuration option is not empty, raising a user error if it is.
 func (co *configOption) require() {
-	stdLog.Print(co.name, " ", co.required, " ", viper.GetString(co.name))
 	if co.required == true && viper.GetString(co.name) == "" {
 		stdLog.Fatalf("Invalid config: %s is blank. Please specify --%s on the command line or set the %s environment variable.", co.name, co.name, co.envVar)
 	}
@@ -293,12 +292,6 @@ func initConfig() {
 
 	validateTLS(tlsProvided)
 
-	// For testing purposes only
-	//stdLog.Fatal(configOpts)
-	stdLog.Fatalf("RateLimit %v (%T)", c.RateLimit, c.RateLimit)
-	// stdLog.Fatal(c)
-	// stdLog.Fatal("Died here")
-
 	// Write to a log file, if a file name was provided
 	lf := viper.GetString("log-file")
 	if lf != "" {
@@ -366,4 +359,34 @@ func initConfig() {
 		SkipCursorUpdate:       viper.GetBool("skip-cursor-update"),
 		EnableAssetStats:       viper.GetBool("enable-asset-stats"),
 	}
+
+	// For testing purposes only
+	//stdLog.Fatal(configOpts)
+	stdLog.Printf("DatabaseURL    \"%s\"(%T)    \"%s\"(%T)", c.DatabaseURL, c.DatabaseURL, config.DatabaseURL, config.DatabaseURL)
+	stdLog.Printf("StellarCoreDatabaseURL    \"%s\"(%T)    \"%s\"(%T)", c.StellarCoreDatabaseURL, c.StellarCoreDatabaseURL, config.StellarCoreDatabaseURL, config.StellarCoreDatabaseURL)
+	stdLog.Printf("StellarCoreURL    \"%s\"(%T)    \"%s\"(%T)", c.StellarCoreURL, c.StellarCoreURL, config.StellarCoreURL, config.StellarCoreURL)
+	stdLog.Printf("Port    \"%d\"(%T)    \"%d\"(%T)", c.Port, c.Port, config.Port, config.Port)
+	stdLog.Printf("MaxDBConnections    \"%d\"(%T)    \"%d\"(%T)", c.MaxDBConnections, c.MaxDBConnections, config.MaxDBConnections, config.MaxDBConnections)
+	stdLog.Printf("SSEUpdateFrequency    \"%d\"(%T)    \"%d\"(%T)", c.SSEUpdateFrequency, c.SSEUpdateFrequency, config.SSEUpdateFrequency, config.SSEUpdateFrequency)
+	stdLog.Printf("ConnectionTimeout    \"%d\"(%T)    \"%d\"(%T)", c.ConnectionTimeout, c.ConnectionTimeout, config.ConnectionTimeout, config.ConnectionTimeout)
+	stdLog.Printf("RateLimit    \"%+v\"(%T)    \"%+v\"(%T)", c.RateLimit, c.RateLimit, config.RateLimit, config.RateLimit)
+	stdLog.Printf("RateLimitRedisKey    \"%s\"(%T)    \"%s\"(%T)", c.RateLimitRedisKey, c.RateLimitRedisKey, config.RateLimitRedisKey, config.RateLimitRedisKey)
+	stdLog.Printf("RedisURL    \"%s\"(%T)    \"%s\"(%T)", c.RedisURL, c.RedisURL, config.RedisURL, config.RedisURL)
+	stdLog.Printf("FriendbotURL    \"%s\"(%T)    \"%s\"(%T)", c.FriendbotURL, c.FriendbotURL, config.FriendbotURL, config.FriendbotURL)
+	stdLog.Printf("LogLevel    \"%s\"(%T)    \"%s\"(%T)", c.LogLevel, c.LogLevel, config.LogLevel, config.LogLevel)
+	stdLog.Printf("LogFile    \"%s\"(%T)    \"%s\"(%T)", c.LogFile, c.LogFile, config.LogFile, config.LogFile)
+	stdLog.Printf("MaxPathLength    \"%d\"(%T)    \"%d\"(%T)", c.MaxPathLength, c.MaxPathLength, config.MaxPathLength, config.MaxPathLength)
+	stdLog.Printf("NetworkPassphrase    \"%s\"(%T)    \"%s\"(%T)", c.NetworkPassphrase, c.NetworkPassphrase, config.NetworkPassphrase, config.NetworkPassphrase)
+	stdLog.Printf("SentryDSN    \"%s\"(%T)    \"%s\"(%T)", c.SentryDSN, c.SentryDSN, config.SentryDSN, config.SentryDSN)
+	stdLog.Printf("LogglyToken    \"%s\"(%T)    \"%s\"(%T)", c.LogglyToken, c.LogglyToken, config.LogglyToken, config.LogglyToken)
+	stdLog.Printf("LogglyTag    \"%s\"(%T)    \"%s\"(%T)", c.LogglyTag, c.LogglyTag, config.LogglyTag, config.LogglyTag)
+	stdLog.Printf("TLSCert    \"%s\"(%T)    \"%s\"(%T)", c.TLSCert, c.TLSCert, config.TLSCert, config.TLSCert)
+	stdLog.Printf("TLSKey    \"%s\"(%T)    \"%s\"(%T)", c.TLSKey, c.TLSKey, config.TLSKey, config.TLSKey)
+	stdLog.Printf("Ingest    \"%t\"(%T)    \"%t\"(%T)", c.Ingest, c.Ingest, config.Ingest, config.Ingest)
+	stdLog.Printf("HistoryRetentionCount    \"%d\"(%T)    \"%d\"(%T)", c.HistoryRetentionCount, c.HistoryRetentionCount, config.HistoryRetentionCount, config.HistoryRetentionCount)
+	stdLog.Printf("StaleThreshold    \"%d\"(%T)    \"%d\"(%T)", c.StaleThreshold, c.StaleThreshold, config.StaleThreshold, config.StaleThreshold)
+	stdLog.Printf("SkipCursorUpdate    \"%t\"(%T)    \"%t\"(%T)", c.SkipCursorUpdate, c.SkipCursorUpdate, config.SkipCursorUpdate, config.SkipCursorUpdate)
+	// stdLog.Fatalf("RateLimit %v (%T)", c.RateLimit, c.RateLimit)
+	// stdLog.Fatal(c)
+	stdLog.Fatal("Died here")
 }
