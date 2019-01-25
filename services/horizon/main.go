@@ -157,9 +157,7 @@ func setRateLimit(co *configOption) {
 			MaxRate:  throttled.PerHour(perHourRateLimit),
 			MaxBurst: 100,
 		}
-		// TODO: Test this - does it work?
-		co.configKey = rateLimit
-		// *(co.configKey.(throttled.RateQuota)) = rateLimit
+		*(co.configKey.(**throttled.RateQuota)) = rateLimit
 	}
 }
 
@@ -297,7 +295,7 @@ func initConfig() {
 
 	// For testing purposes only
 	//stdLog.Fatal(configOpts)
-	stdLog.Fatalf("MaxPathLength %v (%T)", c.MaxPathLength, c.MaxPathLength)
+	stdLog.Fatalf("RateLimit %v (%T)", c.RateLimit, c.RateLimit)
 	// stdLog.Fatal(c)
 	// stdLog.Fatal("Died here")
 
