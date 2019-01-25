@@ -26,6 +26,8 @@ var rootCmd *cobra.Command
 
 var tlsProvided = 0
 
+// flagType implements a generic interface for the different command line flags,
+// allowing them to be configured in a uniform way.
 type flagType func(name string, value interface{}, usage string) interface{}
 
 var (
@@ -43,15 +45,16 @@ var (
 	}
 )
 
+// configOption is a complete description of the configuration of a command line option
 type configOption struct {
-	name           string
-	envVar         string
-	flagType       flagType
-	flagDefault    interface{}
-	required       bool
-	usage          string
-	customSetValue func(*configOption)
-	configKey      interface{}
+	name           string              // e.g. "db-url"
+	envVar         string              // e.g. "DATABASE_URL". Defaults to uppercase/underscore representation of name
+	flagType       flagType            // e.g. boolFlag
+	flagDefault    interface{}         // A default if no option is provided. Set to "" if no default
+	required       bool                // Whether this option must be set for Horizon to run
+	usage          string              // Help text
+	customSetValue func(*configOption) // Optional function for custom validation/transformation
+	configKey      interface{}         // Pointer to the final key in the horizon.Config struct
 }
 
 // require checks that a required string configuration option is not empty, raising a user error if it is.
@@ -101,14 +104,9 @@ func (co *configOption) setFlag() {
 	}
 }
 
-// inSeconds is a simple helper method to convert an int to a duration in seconds.
-func inSeconds(nSeconds int) time.Duration {
-	return time.Duration(nSeconds) * time.Second
-}
-
 // setDuration converts a command line int to a duration, and stores it in the final config.
 func setDuration(co *configOption) {
-	*(co.configKey.(*time.Duration)) = inSeconds(viper.GetInt(co.name))
+	*(co.configKey.(*time.Duration)) = time.Duration(viper.GetInt(co.name)) * time.Second
 }
 
 // setURL converts a command line string to a URL, and stores it in the final config.

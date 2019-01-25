@@ -34,8 +34,7 @@ type Config struct {
 	TLSCert string
 	// TLSKey is the path to a private key file to use for horizon's TLS config
 	TLSKey string
-	// Ingest is a boolean that indicates whether or not this horizon instance
-	// should run the data ingestion subsystem.
+	// Ingest toggles whether this horizon instance should run the data ingestion subsystem.
 	Ingest bool
 	// HistoryRetentionCount represents the minimum number of ledgers worth of
 	// history data to retain in the horizon database. For the purposes of
