@@ -24,6 +24,8 @@ var c horizon.Config
 
 var rootCmd *cobra.Command
 
+var tlsProvided = 0
+
 type flagType func(name string, value interface{}, usage string) interface{}
 
 var (
@@ -84,6 +86,18 @@ func (co *configOption) setValue() {
 	}
 }
 
+func (co *configOption) setFlag() {
+	switch co.flagDefault.(type) {
+	case string:
+		stringFlag(co.name, co.flagDefault, co.usage)
+	case int:
+		intFlag(co.name, co.flagDefault, co.usage)
+	case bool:
+		boolFlag(co.name, co.flagDefault, co.usage)
+	}
+
+}
+
 func inSeconds(nSeconds int) time.Duration {
 	return time.Duration(nSeconds) * time.Second
 }
@@ -112,37 +126,78 @@ func validateLogLevel(co *configOption) {
 	*(co.configKey.(*logrus.Level)) = ll
 }
 
+// validateLogFile writes to a log file, if a file name was provided
+func validateLogFile(co *configOption) {
+	lf := viper.GetString("log-file")
+	if lf != "" {
+		logFile, err := os.OpenFile(lf, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err == nil {
+			log.DefaultLogger.Logger.Out = logFile
+			*(co.configKey.(*string)) = lf
+		} else {
+			stdLog.Fatal("Failed to log to file")
+		}
+	}
+}
+
+func handleTLS(co *configOption) {
+	if viper.GetString(co.name) != "" {
+		tlsProvided++
+	}
+}
+
+// validateTLS ensures that both a TLS cert and key are provided, if either is provided
+func validateTLS(co *configOption) {
+	if tlsProvided == 1 {
+		stdLog.Fatal("Invalid TLS config: both key and cert must be configured")
+	}
+}
+
+func validateRateLimit(co *configOption) {
+	var rateLimit *throttled.RateQuota = nil
+	perHourRateLimit := viper.GetInt(co.name)
+	if perHourRateLimit != 0 {
+		rateLimit = &throttled.RateQuota{
+			MaxRate:  throttled.PerHour(perHourRateLimit),
+			MaxBurst: 100,
+		}
+		// TODO: Test this - does it work?
+		co.configKey = rateLimit
+		// *(co.configKey.(throttled.RateQuota)) = rateLimit
+	}
+}
+
 // TODO: Fix capitalisation on usage string
 // TODO: Add flag defaults for all, remove flagType
 // TODO: Write func to choose between flagTypes based on flagDefault
 // TODO: Test all options
 // TODO: Verify uints work as expected (pretty sure they need validators adding)
 var configOpts = []configOption{
-	configOption{name: "port", configKey: &c.Port, flagType: intFlag, flagDefault: 8000, usage: "tcp port to listen on for http requests"},
-	configOption{name: "stellar-core-db-url", envVar: "STELLAR_CORE_DATABASE_URL", configKey: &c.StellarCoreDatabaseURL, flagType: stringFlag, flagDefault: "", required: true, usage: "stellar-core postgres database to connect with"},
-	configOption{name: "db-url", envVar: "DATABASE_URL", configKey: &c.DatabaseURL, flagType: stringFlag, flagDefault: "", required: true, usage: "horizon postgres database to connect with"},
-	configOption{name: "stellar-core-url", configKey: &c.StellarCoreURL, flagType: stringFlag, flagDefault: "", required: true, usage: "stellar-core to connect with (for http commands)"},
-	configOption{name: "max-db-connections", configKey: &c.MaxDBConnections, flagType: intFlag, flagDefault: 20, usage: "max db connections (per DB), may need to be increased when responses are slow but DB CPU is normal"},
-	configOption{name: "sse-update-frequency", configKey: &c.SSEUpdateFrequency, flagType: intFlag, flagDefault: 5, validator: validateDuration, usage: "defines how often streams should check if there's a new ledger (in seconds), may need to increase in case of big number of streams"},
-	configOption{name: "connection-timeout", configKey: &c.ConnectionTimeout, flagType: intFlag, flagDefault: 55, validator: validateDuration, usage: "defines the timeout of connection after which 504 response will be sent or stream will be closed, if Horizon is behind a load balancer with idle connection timeout, this should be set to a few seconds less that idle timeout"},
-	// configOption{name: "per-hour-rate-limit", flagType: intFlag, flagDefault: 3600, usage: "max count of requests allowed in a one hour period, by remote ip address"},
-	configOption{name: "rate-limit-redis-key", configKey: &c.RateLimitRedisKey, flagType: stringFlag, flagDefault: "", usage: "redis key for storing rate limit data, useful when deploying a cluster of Horizons, ignored when redis-url is empty"},
-	configOption{name: "redis-url", configKey: &c.RedisURL, flagType: stringFlag, flagDefault: "", usage: "redis to connect with, for rate limiting"},
-	configOption{name: "friendbot-url", configKey: &c.FriendbotURL, flagType: stringFlag, flagDefault: "", validator: validateURL, usage: "friendbot service to redirect to"},
-	configOption{name: "log-level", configKey: &c.LogLevel, flagType: stringFlag, flagDefault: "info", usage: "Minimum log severity (debug, info, warn, error) to log", validator: validateLogLevel},
-	// configOption{name: "log-file", flagType: stringFlag, usage: "Name of the file where logs will be saved (leave empty to send logs to stdout)"},
-	configOption{name: "sentry-dsn", configKey: &c.SentryDSN, flagType: stringFlag, flagDefault: "", usage: "Sentry URL to which panics and errors should be reported"},
-	configOption{name: "loggly-token", configKey: &c.LogglyToken, flagType: stringFlag, flagDefault: "", usage: "Loggly token, used to configure log forwarding to loggly"},
-	configOption{name: "loggly-tag", configKey: &c.LogglyTag, flagType: stringFlag, flagDefault: "horizon", usage: "Tag to be added to every loggly log event"},
-	// configOption{name: "tls-cert", configKey: &c.TLSCert, flagType: stringFlag, usage: "The TLS certificate file to use for securing connections to horizon"},
-	// configOption{name: "tls-key", configKey: &c.TLSKey, flagType: stringFlag, usage: "The TLS private key file to use for securing connections to horizon"},
-	configOption{name: "ingest", configKey: &c.Ingest, flagType: boolFlag, flagDefault: false, usage: "causes this horizon process to ingest data from stellar-core into horizon's db"},
-	configOption{name: "network-passphrase", configKey: &c.NetworkPassphrase, flagType: stringFlag, flagDefault: network.TestNetworkPassphrase, required: true, usage: "Override the network passphrase"},
-	configOption{name: "history-retention-count", configKey: &c.HistoryRetentionCount, flagType: uintFlag, flagDefault: uint(0), usage: "the minimum number of ledgers to maintain within horizon's history tables.  0 signifies an unlimited number of ledgers will be retained"},
-	configOption{name: "history-stale-threshold", configKey: &c.StaleThreshold, flagType: uintFlag, flagDefault: uint(0), usage: "the maximum number of ledgers the history db is allowed to be out of date from the connected stellar-core db before horizon considers history stale"},
-	configOption{name: "skip-cursor-update", configKey: &c.SkipCursorUpdate, flagType: boolFlag, flagDefault: false, usage: "causes the ingester to skip reporting the last imported ledger state to stellar-core"},
-	configOption{name: "enable-asset-stats", configKey: &c.EnableAssetStats, flagType: boolFlag, flagDefault: false, usage: "enables asset stats during the ingestion and expose `/assets` endpoint,  Enabling it has a negative impact on CPU"},
-	configOption{name: "max-path-length", configKey: &c.MaxPathLength, flagType: uintFlag, flagDefault: uint(4), usage: "the maximum number of assets on the path in `/paths` endpoint"},
+	configOption{name: "port", configKey: &c.Port, flagDefault: 8000, usage: "tcp port to listen on for http requests"},
+	configOption{name: "stellar-core-db-url", envVar: "STELLAR_CORE_DATABASE_URL", configKey: &c.StellarCoreDatabaseURL, flagDefault: "", required: true, usage: "stellar-core postgres database to connect with"},
+	configOption{name: "db-url", envVar: "DATABASE_URL", configKey: &c.DatabaseURL, flagDefault: "", required: true, usage: "horizon postgres database to connect with"},
+	configOption{name: "stellar-core-url", configKey: &c.StellarCoreURL, flagDefault: "", required: true, usage: "stellar-core to connect with (for http commands)"},
+	configOption{name: "max-db-connections", configKey: &c.MaxDBConnections, flagDefault: 20, usage: "max db connections (per DB), may need to be increased when responses are slow but DB CPU is normal"},
+	configOption{name: "sse-update-frequency", configKey: &c.SSEUpdateFrequency, flagDefault: 5, validator: validateDuration, usage: "defines how often streams should check if there's a new ledger (in seconds), may need to increase in case of big number of streams"},
+	configOption{name: "connection-timeout", configKey: &c.ConnectionTimeout, flagDefault: 55, validator: validateDuration, usage: "defines the timeout of connection after which 504 response will be sent or stream will be closed, if Horizon is behind a load balancer with idle connection timeout, this should be set to a few seconds less that idle timeout"},
+	configOption{name: "per-hour-rate-limit", configKey: &c.RateLimit, flagDefault: 3600, validator: validateRateLimit, usage: "max count of requests allowed in a one hour period, by remote ip address"},
+	configOption{name: "rate-limit-redis-key", configKey: &c.RateLimitRedisKey, flagDefault: "", usage: "redis key for storing rate limit data, useful when deploying a cluster of Horizons, ignored when redis-url is empty"},
+	configOption{name: "redis-url", configKey: &c.RedisURL, flagDefault: "", usage: "redis to connect with, for rate limiting"},
+	configOption{name: "friendbot-url", configKey: &c.FriendbotURL, flagDefault: "", validator: validateURL, usage: "friendbot service to redirect to"},
+	configOption{name: "log-level", configKey: &c.LogLevel, flagDefault: "info", validator: validateLogLevel, usage: "Minimum log severity (debug, info, warn, error) to log"},
+	configOption{name: "log-file", configKey: &c.LogFile, flagDefault: "", validator: validateLogFile, usage: "Name of the file where logs will be saved (leave empty to send logs to stdout)"},
+	configOption{name: "sentry-dsn", configKey: &c.SentryDSN, flagDefault: "", usage: "Sentry URL to which panics and errors should be reported"},
+	configOption{name: "loggly-token", configKey: &c.LogglyToken, flagDefault: "", usage: "Loggly token, used to configure log forwarding to loggly"},
+	configOption{name: "loggly-tag", configKey: &c.LogglyTag, flagDefault: "horizon", usage: "Tag to be added to every loggly log event"},
+	configOption{name: "tls-cert", configKey: &c.TLSCert, flagDefault: "", validator: handleTLS, usage: "The TLS certificate file to use for securing connections to horizon"},
+	configOption{name: "tls-key", configKey: &c.TLSKey, flagDefault: "", validator: handleTLS, usage: "The TLS private key file to use for securing connections to horizon"},
+	configOption{name: "ingest", configKey: &c.Ingest, flagDefault: false, usage: "causes this horizon process to ingest data from stellar-core into horizon's db"},
+	configOption{name: "network-passphrase", configKey: &c.NetworkPassphrase, flagDefault: network.TestNetworkPassphrase, required: true, usage: "Override the network passphrase"},
+	configOption{name: "history-retention-count", configKey: &c.HistoryRetentionCount, flagDefault: uint(0), usage: "the minimum number of ledgers to maintain within horizon's history tables.  0 signifies an unlimited number of ledgers will be retained"},
+	configOption{name: "history-stale-threshold", configKey: &c.StaleThreshold, flagDefault: uint(0), usage: "the maximum number of ledgers the history db is allowed to be out of date from the connected stellar-core db before horizon considers history stale"},
+	configOption{name: "skip-cursor-update", configKey: &c.SkipCursorUpdate, flagDefault: false, usage: "causes the ingester to skip reporting the last imported ledger state to stellar-core"},
+	configOption{name: "enable-asset-stats", configKey: &c.EnableAssetStats, flagDefault: false, usage: "enables asset stats during the ingestion and expose `/assets` endpoint,  Enabling it has a negative impact on CPU"},
+	configOption{name: "max-path-length", configKey: &c.MaxPathLength, flagDefault: uint(4), usage: "the maximum number of assets on the path in `/paths` endpoint"},
 }
 
 func main() {
@@ -178,7 +233,7 @@ func init() {
 		}
 
 		// Initialise the persistent flags
-		co.flagType(co.name, co.flagDefault, co.usage)
+		co.setFlag()
 	}
 
 	rootCmd.AddCommand(dbCmd)
