@@ -24,6 +24,7 @@ var c horizon.Config
 
 var rootCmd *cobra.Command
 
+// Counter to check that either neither or both TLS flags are provided
 var tlsProvided = 0
 
 // flagType implements a generic interface for the different command line flags,
@@ -65,7 +66,7 @@ func (co *configOption) require() {
 }
 
 // setValue sets a value in the global config, using a custom function, if one was provided.
-func (co *configOption) setValue(c *horizon.Config) error {
+func (co *configOption) setValue() error {
 	// Use a custom setting function, if one is provided
 	if co.customSetValue != nil {
 		co.customSetValue(co)
@@ -176,9 +177,25 @@ func validateTLS(tlsProvided int) {
 	}
 }
 
-// TODO: Test all options
-// TODO: Clean up original config custom code after verification
-// TODO: Config = c
+// checkMigrations looks for necessary database migrations and fails with a descriptive error if migrations are needed
+func checkMigrations() {
+	migrationsToApplyUp := schema.GetMigrationsUp(viper.GetString("db-url"))
+	if len(migrationsToApplyUp) > 0 {
+		stdLog.Printf(`There are %v migrations to apply in the "up" direction.`, len(migrationsToApplyUp))
+		stdLog.Printf("The necessary migrations are: %v", migrationsToApplyUp)
+		stdLog.Printf("A database migration is required to run this version (%v) of Horizon. Run \"horizon db migrate up\" to update your DB. Consult the Changelog (https://github.com/stellar/horizon/blob/master/CHANGELOG.md) for more information.", apkg.Version())
+		os.Exit(1)
+	}
+
+	nMigrationsDown := schema.GetNumMigrationsDown(viper.GetString("db-url"))
+	if nMigrationsDown > 0 {
+		stdLog.Printf("A database migration DOWN to an earlier version of the schema is required to run this version (%v) of Horizon. Consult the Changelog (https://github.com/stellar/horizon/blob/master/CHANGELOG.md) for more information.", apkg.Version())
+		stdLog.Printf("In order to migrate the database DOWN, using the HIGHEST version number of Horizon you have installed (not this binary), run \"horizon db migrate down %v\".", nMigrationsDown)
+		os.Exit(1)
+	}
+}
+
+// configOpts defines the complete flag configuration for horizon. Add a new line here to connect a new field in the horizon.Config struct
 var configOpts = []configOption{
 	configOption{name: "db-url", envVar: "DATABASE_URL", configKey: &c.DatabaseURL, flagDefault: "", required: true, usage: "horizon postgres database to connect with"},
 	configOption{name: "stellar-core-db-url", envVar: "STELLAR_CORE_DATABASE_URL", configKey: &c.StellarCoreDatabaseURL, flagDefault: "", required: true, usage: "stellar-core postgres database to connect with"},
@@ -212,9 +229,6 @@ func main() {
 }
 
 func init() {
-	viper.SetDefault("port", 8000)
-	viper.SetDefault("history-retention-count", 0)
-
 	rootCmd = &cobra.Command{
 		Use:   "horizon",
 		Short: "client-facing api server for the stellar network",
@@ -229,17 +243,16 @@ func init() {
 		co := &configOpts[i]
 
 		// Bind the command line and environment variable name
+		// Unless overriden, default to a transform like tls-key -> TLS_KEY
 		if co.envVar == "" {
 			co.envVar = strutils.KebabToConstantCase(co.name)
 			viper.BindEnv(co.name, co.envVar)
 		}
-
 		// Initialise the persistent flags
 		co.setFlag()
 	}
 
 	rootCmd.AddCommand(dbCmd)
-
 	viper.BindPFlags(rootCmd.PersistentFlags())
 }
 
@@ -257,137 +270,22 @@ func initApp(cmd *cobra.Command, args []string) *horizon.App {
 }
 
 func initConfig() {
-	// Check all required args were provided
+	// Check all required args were provided - needed for migrations check
 	for i := range configOpts {
 		co := &configOpts[i]
 		co.require()
 	}
 
-	migrationsToApplyUp := schema.GetMigrationsUp(viper.GetString("db-url"))
-	if len(migrationsToApplyUp) > 0 {
-		stdLog.Printf(`There are %v migrations to apply in the "up" direction.`, len(migrationsToApplyUp))
-		stdLog.Printf("The necessary migrations are: %v", migrationsToApplyUp)
-		stdLog.Printf("A database migration is required to run this version (%v) of Horizon. Run \"horizon db migrate up\" to update your DB. Consult the Changelog (https://github.com/stellar/horizon/blob/master/CHANGELOG.md) for more information.", apkg.Version())
-		os.Exit(1)
-	}
+	// Migrations should be checked as early as possible
+	checkMigrations()
 
-	nMigrationsDown := schema.GetNumMigrationsDown(viper.GetString("db-url"))
-	if nMigrationsDown > 0 {
-		stdLog.Printf("A database migration DOWN to an earlier version of the schema is required to run this version (%v) of Horizon. Consult the Changelog (https://github.com/stellar/horizon/blob/master/CHANGELOG.md) for more information.", apkg.Version())
-		stdLog.Printf("In order to migrate the database DOWN, using the HIGHEST version number of Horizon you have installed (not this binary), run \"horizon db migrate down %v\".", nMigrationsDown)
-		os.Exit(1)
-	}
-
-	// Run validation checks
+	// Initialise and validate the global configuration
 	for i := range configOpts {
 		co := &configOpts[i]
-		co.setValue(&c)
+		co.setValue()
 	}
-	// Validate log level
-	ll, err := logrus.ParseLevel(viper.GetString("log-level"))
-	if err != nil {
-		stdLog.Fatalf("Could not parse log-level: %v", viper.GetString("log-level"))
-	}
-	log.DefaultLogger.Level = ll
-
+	// Validate options that should be provided together
 	validateTLS(tlsProvided)
 
-	// Write to a log file, if a file name was provided
-	lf := viper.GetString("log-file")
-	if lf != "" {
-		logFile, err := os.OpenFile(lf, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err == nil {
-			log.DefaultLogger.Logger.Out = logFile
-		} else {
-			stdLog.Fatal("Failed to log to file")
-		}
-	}
-
-	// Ensure that both a TLS cert and key are provided, if either is provided
-	cert, key := viper.GetString("tls-cert"), viper.GetString("tls-key")
-	switch {
-	case cert != "" && key == "":
-		stdLog.Fatal("Invalid TLS config: key not configured")
-	case cert == "" && key != "":
-		stdLog.Fatal("Invalid TLS config: cert not configured")
-	}
-
-	// Validate the friendbotURL is a URL, if it was provided
-	var friendbotURL *url.URL
-	friendbotURLString := viper.GetString("friendbot-url")
-	if friendbotURLString != "" {
-		friendbotURL, err = url.Parse(friendbotURLString)
-		if err != nil {
-			stdLog.Fatalf("Unable to parse URL: %s/%v", friendbotURLString, err)
-		}
-	}
-
-	// Set rate and burst limiting if provided
-	var rateLimit *throttled.RateQuota = nil
-	perHourRateLimit := viper.GetInt("per-hour-rate-limit")
-	if perHourRateLimit != 0 {
-		rateLimit = &throttled.RateQuota{
-			MaxRate:  throttled.PerHour(perHourRateLimit),
-			MaxBurst: 100,
-		}
-	}
-
-	config = horizon.Config{
-		DatabaseURL:            viper.GetString("db-url"),
-		StellarCoreDatabaseURL: viper.GetString("stellar-core-db-url"),
-		StellarCoreURL:         viper.GetString("stellar-core-url"),
-		Port:                   viper.GetInt("port"),
-		MaxDBConnections:       viper.GetInt("max-db-connections"),
-		SSEUpdateFrequency:     time.Duration(viper.GetInt("sse-update-frequency")) * time.Second,
-		ConnectionTimeout:      time.Duration(viper.GetInt("connection-timeout")) * time.Second,
-		RateLimit:              rateLimit,
-		RateLimitRedisKey:      viper.GetString("rate-limit-redis-key"),
-		RedisURL:               viper.GetString("redis-url"),
-		FriendbotURL:           friendbotURL,
-		LogLevel:               ll,
-		LogFile:                lf,
-		MaxPathLength:          uint(viper.GetInt("max-path-length")),
-		NetworkPassphrase:      viper.GetString("network-passphrase"),
-		SentryDSN:              viper.GetString("sentry-dsn"),
-		LogglyToken:            viper.GetString("loggly-token"),
-		LogglyTag:              viper.GetString("loggly-tag"),
-		TLSCert:                cert,
-		TLSKey:                 key,
-		Ingest:                 viper.GetBool("ingest"),
-		HistoryRetentionCount:  uint(viper.GetInt("history-retention-count")),
-		StaleThreshold:         uint(viper.GetInt("history-stale-threshold")),
-		SkipCursorUpdate:       viper.GetBool("skip-cursor-update"),
-		EnableAssetStats:       viper.GetBool("enable-asset-stats"),
-	}
-
-	// For testing purposes only
-	// Example testing command line:
-	// horizon --db-url="postgres://localhost/horizon_schema" --stellar-core-db-url="postgres://stellar:postgres@localhost:8002/core" --stellar-core-url="http://localhost:11626" --port 8001 --network-passphrase "Test SDF Network ; September 2015" --ingest --tls-cert blah --tls-key a --rate-limit-redis-key "reeeedis" --redis-url "yohoho" --friendbot-url "1" --log-level "warn" --log-file 'foo.out' --max-path-length '14' --sentry-dsn "woo" --loggly-token "heh" --loggly-tag "hah" --history-retention-count 44 --history-stale-threshold 23 --skip-cursor-update --enable-asset-stats
-	stdLog.Printf("DatabaseURL    \"%s\"(%T)    \"%s\"(%T)", c.DatabaseURL, c.DatabaseURL, config.DatabaseURL, config.DatabaseURL)
-	stdLog.Printf("StellarCoreDatabaseURL    \"%s\"(%T)    \"%s\"(%T)", c.StellarCoreDatabaseURL, c.StellarCoreDatabaseURL, config.StellarCoreDatabaseURL, config.StellarCoreDatabaseURL)
-	stdLog.Printf("StellarCoreURL    \"%s\"(%T)    \"%s\"(%T)", c.StellarCoreURL, c.StellarCoreURL, config.StellarCoreURL, config.StellarCoreURL)
-	stdLog.Printf("Port    \"%d\"(%T)    \"%d\"(%T)", c.Port, c.Port, config.Port, config.Port)
-	stdLog.Printf("MaxDBConnections    \"%d\"(%T)    \"%d\"(%T)", c.MaxDBConnections, c.MaxDBConnections, config.MaxDBConnections, config.MaxDBConnections)
-	stdLog.Printf("SSEUpdateFrequency    \"%d\"(%T)    \"%d\"(%T)", c.SSEUpdateFrequency, c.SSEUpdateFrequency, config.SSEUpdateFrequency, config.SSEUpdateFrequency)
-	stdLog.Printf("ConnectionTimeout    \"%d\"(%T)    \"%d\"(%T)", c.ConnectionTimeout, c.ConnectionTimeout, config.ConnectionTimeout, config.ConnectionTimeout)
-	stdLog.Printf("RateLimit    \"%+v\"(%T)    \"%+v\"(%T)", c.RateLimit, c.RateLimit, config.RateLimit, config.RateLimit)
-	stdLog.Printf("RateLimitRedisKey    \"%s\"(%T)    \"%s\"(%T)", c.RateLimitRedisKey, c.RateLimitRedisKey, config.RateLimitRedisKey, config.RateLimitRedisKey)
-	stdLog.Printf("RedisURL    \"%s\"(%T)    \"%s\"(%T)", c.RedisURL, c.RedisURL, config.RedisURL, config.RedisURL)
-	stdLog.Printf("FriendbotURL    \"%s\"(%T)    \"%s\"(%T)", c.FriendbotURL, c.FriendbotURL, config.FriendbotURL, config.FriendbotURL)
-	stdLog.Printf("LogLevel    \"%s\"(%T)    \"%s\"(%T)", c.LogLevel, c.LogLevel, config.LogLevel, config.LogLevel)
-	stdLog.Printf("LogFile    \"%s\"(%T)    \"%s\"(%T)", c.LogFile, c.LogFile, config.LogFile, config.LogFile)
-	stdLog.Printf("MaxPathLength    \"%d\"(%T)    \"%d\"(%T)", c.MaxPathLength, c.MaxPathLength, config.MaxPathLength, config.MaxPathLength)
-	stdLog.Printf("NetworkPassphrase    \"%s\"(%T)    \"%s\"(%T)", c.NetworkPassphrase, c.NetworkPassphrase, config.NetworkPassphrase, config.NetworkPassphrase)
-	stdLog.Printf("SentryDSN    \"%s\"(%T)    \"%s\"(%T)", c.SentryDSN, c.SentryDSN, config.SentryDSN, config.SentryDSN)
-	stdLog.Printf("LogglyToken    \"%s\"(%T)    \"%s\"(%T)", c.LogglyToken, c.LogglyToken, config.LogglyToken, config.LogglyToken)
-	stdLog.Printf("LogglyTag    \"%s\"(%T)    \"%s\"(%T)", c.LogglyTag, c.LogglyTag, config.LogglyTag, config.LogglyTag)
-	stdLog.Printf("TLSCert    \"%s\"(%T)    \"%s\"(%T)", c.TLSCert, c.TLSCert, config.TLSCert, config.TLSCert)
-	stdLog.Printf("TLSKey    \"%s\"(%T)    \"%s\"(%T)", c.TLSKey, c.TLSKey, config.TLSKey, config.TLSKey)
-	stdLog.Printf("Ingest    \"%t\"(%T)    \"%t\"(%T)", c.Ingest, c.Ingest, config.Ingest, config.Ingest)
-	stdLog.Printf("HistoryRetentionCount    \"%d\"(%T)    \"%d\"(%T)", c.HistoryRetentionCount, c.HistoryRetentionCount, config.HistoryRetentionCount, config.HistoryRetentionCount)
-	stdLog.Printf("StaleThreshold    \"%d\"(%T)    \"%d\"(%T)", c.StaleThreshold, c.StaleThreshold, config.StaleThreshold, config.StaleThreshold)
-	stdLog.Printf("SkipCursorUpdate    \"%t\"(%T)    \"%t\"(%T)", c.SkipCursorUpdate, c.SkipCursorUpdate, config.SkipCursorUpdate, config.SkipCursorUpdate)
-	stdLog.Printf("EnableAssetStats    \"%t\"(%T)    \"%t\"(%T)", c.EnableAssetStats, c.EnableAssetStats, config.EnableAssetStats, config.EnableAssetStats)
-	// stdLog.Fatal(c)
-	stdLog.Fatal("Died here")
+	config = c
 }
