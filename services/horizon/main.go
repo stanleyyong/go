@@ -119,7 +119,7 @@ func setURL(co *configOption) {
 		if err != nil {
 			stdLog.Fatalf("Unable to parse URL: %s/%v", urlString, err)
 		}
-		*(co.configKey.(*url.URL)) = *urlType
+		*(co.configKey.(**url.URL)) = urlType
 	}
 }
 
@@ -192,7 +192,7 @@ var configOpts = []configOption{
 	configOption{name: "redis-url", configKey: &c.RedisURL, flagDefault: "", usage: "redis to connect with, for rate limiting"},
 	configOption{name: "friendbot-url", configKey: &c.FriendbotURL, flagDefault: "", customSetValue: setURL, usage: "friendbot service to redirect to"},
 	configOption{name: "log-level", configKey: &c.LogLevel, flagDefault: "info", customSetValue: setLogLevel, usage: "minimum log severity (debug, info, warn, error) to log"},
-	configOption{name: "log-file", configKey: &c.LogFile, flagDefault: "", customSetValue: setLogFile, usage: "Name of the file where logs will be saved (leave empty to send logs to stdout)"},
+	configOption{name: "log-file", configKey: &c.LogFile, flagDefault: "", customSetValue: setLogFile, usage: "name of the file where logs will be saved (leave empty to send logs to stdout)"},
 	configOption{name: "max-path-length", configKey: &c.MaxPathLength, flagDefault: uint(4), usage: "the maximum number of assets on the path in `/paths` endpoint"},
 	configOption{name: "network-passphrase", configKey: &c.NetworkPassphrase, flagDefault: network.TestNetworkPassphrase, required: true, usage: "Override the network passphrase"},
 	configOption{name: "sentry-dsn", configKey: &c.SentryDSN, flagDefault: "", usage: "Sentry URL to which panics and errors should be reported"},
@@ -361,7 +361,8 @@ func initConfig() {
 	}
 
 	// For testing purposes only
-	//stdLog.Fatal(configOpts)
+	// Example testing command line:
+	// horizon --db-url="postgres://localhost/horizon_schema" --stellar-core-db-url="postgres://stellar:postgres@localhost:8002/core" --stellar-core-url="http://localhost:11626" --port 8001 --network-passphrase "Test SDF Network ; September 2015" --ingest --tls-cert blah --tls-key a --rate-limit-redis-key "reeeedis" --redis-url "yohoho" --friendbot-url "1" --log-level "warn" --log-file 'foo.out' --max-path-length '14' --sentry-dsn "woo" --loggly-token "heh" --loggly-tag "hah" --history-retention-count 44 --history-stale-threshold 23 --skip-cursor-update --enable-asset-stats
 	stdLog.Printf("DatabaseURL    \"%s\"(%T)    \"%s\"(%T)", c.DatabaseURL, c.DatabaseURL, config.DatabaseURL, config.DatabaseURL)
 	stdLog.Printf("StellarCoreDatabaseURL    \"%s\"(%T)    \"%s\"(%T)", c.StellarCoreDatabaseURL, c.StellarCoreDatabaseURL, config.StellarCoreDatabaseURL, config.StellarCoreDatabaseURL)
 	stdLog.Printf("StellarCoreURL    \"%s\"(%T)    \"%s\"(%T)", c.StellarCoreURL, c.StellarCoreURL, config.StellarCoreURL, config.StellarCoreURL)
@@ -386,7 +387,7 @@ func initConfig() {
 	stdLog.Printf("HistoryRetentionCount    \"%d\"(%T)    \"%d\"(%T)", c.HistoryRetentionCount, c.HistoryRetentionCount, config.HistoryRetentionCount, config.HistoryRetentionCount)
 	stdLog.Printf("StaleThreshold    \"%d\"(%T)    \"%d\"(%T)", c.StaleThreshold, c.StaleThreshold, config.StaleThreshold, config.StaleThreshold)
 	stdLog.Printf("SkipCursorUpdate    \"%t\"(%T)    \"%t\"(%T)", c.SkipCursorUpdate, c.SkipCursorUpdate, config.SkipCursorUpdate, config.SkipCursorUpdate)
-	// stdLog.Fatalf("RateLimit %v (%T)", c.RateLimit, c.RateLimit)
+	stdLog.Printf("EnableAssetStats    \"%t\"(%T)    \"%t\"(%T)", c.EnableAssetStats, c.EnableAssetStats, config.EnableAssetStats, config.EnableAssetStats)
 	// stdLog.Fatal(c)
 	stdLog.Fatal("Died here")
 }
