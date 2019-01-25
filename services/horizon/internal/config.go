@@ -8,7 +8,7 @@ import (
 	"github.com/throttled/throttled"
 )
 
-// Config is the configuration for horizon.  It get's populated by the
+// Config is the configuration for horizon.  It gets populated by the
 // app's main function and is provided to NewApp.
 type Config struct {
 	DatabaseURL            string
@@ -21,15 +21,15 @@ type Config struct {
 	RateLimit              *throttled.RateQuota
 	RateLimitRedisKey      string
 	RedisURL               string
-	NetworkPassphrase      string
 	FriendbotURL           *url.URL
 	LogLevel               logrus.Level
 	LogFile                string
-	SentryDSN              string
-	LogglyTag              string
-	LogglyToken            string
-	// Maximum length of the path returned by `/paths` endpoint.
-	MaxPathLength uint
+	// MaxPathLength is the maximum length of the path returned by `/paths` endpoint.
+	MaxPathLength     uint
+	NetworkPassphrase string
+	SentryDSN         string
+	LogglyToken       string
+	LogglyTag         string
 	// TLSCert is a path to a certificate file to use for horizon's TLS config
 	TLSCert string
 	// TLSKey is the path to a private key file to use for horizon's TLS config
