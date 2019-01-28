@@ -117,28 +117,13 @@ func setURL(co *configOption) {
 	}
 }
 
-// setLogLevel validates and sets the log level globally and in the final config.
+// setLogLevel validates and sets the log level in the final config.
 func setLogLevel(co *configOption) {
 	ll, err := logrus.ParseLevel(viper.GetString(co.name))
 	if err != nil {
 		stdLog.Fatalf("Could not parse log-level: %v", viper.GetString(co.name))
 	}
-	log.DefaultLogger.Level = ll
 	*(co.configKey.(*logrus.Level)) = ll
-}
-
-// setLogFile configures a log file for writing, ands sets the file name in the final config.
-func setLogFile(co *configOption) {
-	lf := viper.GetString(co.name)
-	if lf != "" {
-		logFile, err := os.OpenFile(lf, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err == nil {
-			log.DefaultLogger.Logger.Out = logFile
-			*(co.configKey.(*string)) = lf
-		} else {
-			stdLog.Fatal("Failed to log to file")
-		}
-	}
 }
 
 // setRateLimit converts a command line rate limit, and sets rate and burst limiting in the final config.
@@ -197,7 +182,7 @@ var configOpts = []*configOption{
 	&configOption{name: "redis-url", configKey: &c.RedisURL, flagDefault: "", usage: "redis to connect with, for rate limiting"},
 	&configOption{name: "friendbot-url", configKey: &c.FriendbotURL, flagDefault: "", customSetValue: setURL, usage: "friendbot service to redirect to"},
 	&configOption{name: "log-level", configKey: &c.LogLevel, flagDefault: "info", customSetValue: setLogLevel, usage: "minimum log severity (debug, info, warn, error) to log"},
-	&configOption{name: "log-file", configKey: &c.LogFile, flagDefault: "", customSetValue: setLogFile, usage: "name of the file where logs will be saved (leave empty to send logs to stdout)"},
+	&configOption{name: "log-file", configKey: &c.LogFile, flagDefault: "", usage: "name of the file where logs will be saved (leave empty to send logs to stdout)"},
 	&configOption{name: "max-path-length", configKey: &c.MaxPathLength, flagDefault: uint(4), usage: "the maximum number of assets on the path in `/paths` endpoint"},
 	&configOption{name: "network-passphrase", configKey: &c.NetworkPassphrase, flagDefault: network.TestNetworkPassphrase, required: true, usage: "Override the network passphrase"},
 	&configOption{name: "sentry-dsn", configKey: &c.SentryDSN, flagDefault: "", usage: "Sentry URL to which panics and errors should be reported"},
@@ -273,6 +258,19 @@ func initConfig() {
 	validateBothOrNeither("tls-cert", "tls-key")
 	validateBothOrNeither("loggly-token", "loggly-tag")
 	validateBothOrNeither("rate-limit-redis-key", "redis-url")
+
+	// Configure log file
+	if c.LogFile != "" {
+		logFile, err := os.OpenFile(c.LogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err == nil {
+			log.DefaultLogger.Logger.Out = logFile
+		} else {
+			stdLog.Fatalf("Failed to open file to log: %s", err)
+		}
+	}
+
+	// Configure log level
+	log.DefaultLogger.Level = c.LogLevel
 
 	config = c
 	stdLog.Fatal(config)
