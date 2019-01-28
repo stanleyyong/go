@@ -14,7 +14,7 @@ type Config struct {
 	DatabaseURL            string
 	StellarCoreDatabaseURL string
 	StellarCoreURL         string
-	Port                   int
+	Port                   uint
 	MaxDBConnections       int
 	SSEUpdateFrequency     time.Duration
 	ConnectionTimeout      time.Duration

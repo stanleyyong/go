@@ -64,7 +64,7 @@ func (co *configOption) require() {
 }
 
 // setValue sets a value in the global config, using a custom function, if one was provided.
-func (co *configOption) setValue() error {
+func (co *configOption) setValue() {
 	// Use a custom setting function, if one is provided
 	if co.customSetValue != nil {
 		co.customSetValue(co)
@@ -72,7 +72,6 @@ func (co *configOption) setValue() error {
 	} else if co.configKey != nil {
 		co.setSimpleValue()
 	}
-	return nil
 }
 
 // setSimpleValue sets the value of a configOption's configKey, based on the configOption's default type.
@@ -198,8 +197,8 @@ var configOpts = []configOption{
 	configOption{name: "db-url", envVar: "DATABASE_URL", configKey: &c.DatabaseURL, flagDefault: "", required: true, usage: "horizon postgres database to connect with"},
 	configOption{name: "stellar-core-db-url", envVar: "STELLAR_CORE_DATABASE_URL", configKey: &c.StellarCoreDatabaseURL, flagDefault: "", required: true, usage: "stellar-core postgres database to connect with"},
 	configOption{name: "stellar-core-url", configKey: &c.StellarCoreURL, flagDefault: "", required: true, usage: "stellar-core to connect with (for http commands)"},
-	configOption{name: "port", configKey: &c.Port, flagDefault: 8000, usage: "tcp port to listen on for http requests"},
-	configOption{name: "max-db-connections", configKey: &c.MaxDBConnections, flagDefault: 20, usage: "max db connections (per DB), may need to be increased when responses are slow but DB CPU is normal"},
+	configOption{name: "port", configKey: &c.Port, flagDefault: uint(8000), usage: "tcp port to listen on for http requests"},
+	configOption{name: "max-db-connections", configKey: &c.MaxDBConnections, flagDefault: int(20), usage: "max db connections (per DB), may need to be increased when responses are slow but DB CPU is normal"},
 	configOption{name: "sse-update-frequency", configKey: &c.SSEUpdateFrequency, flagDefault: 5, customSetValue: setDuration, usage: "defines how often streams should check if there's a new ledger (in seconds), may need to increase in case of big number of streams"},
 	configOption{name: "connection-timeout", configKey: &c.ConnectionTimeout, flagDefault: 55, customSetValue: setDuration, usage: "defines the timeout of connection after which 504 response will be sent or stream will be closed, if Horizon is behind a load balancer with idle connection timeout, this should be set to a few seconds less that idle timeout"},
 	configOption{name: "per-hour-rate-limit", configKey: &c.RateLimit, flagDefault: 3600, customSetValue: setRateLimit, usage: "max count of requests allowed in a one hour period, by remote ip address"},
