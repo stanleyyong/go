@@ -52,6 +52,7 @@ type configOption struct {
 	configKey      interface{}         // Pointer to the final key in the horizon.Config struct
 }
 
+// init handles initialisation steps, including configuring and binding the env variable name.
 func (co *configOption) init() {
 	// Bind the command line and environment variable name
 	// Unless overriden, default to a transform like tls-key -> TLS_KEY
