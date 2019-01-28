@@ -52,6 +52,17 @@ type configOption struct {
 	configKey      interface{}         // Pointer to the final key in the horizon.Config struct
 }
 
+func (co *configOption) init() {
+	// Bind the command line and environment variable name
+	// Unless overriden, default to a transform like tls-key -> TLS_KEY
+	if co.envVar == "" {
+		co.envVar = strutils.KebabToConstantCase(co.name)
+	}
+	viper.BindEnv(co.name, co.envVar)
+	// Initialise the persistent flags
+	co.setFlag()
+}
+
 // require checks that a required string configuration option is not empty, raising a user error if it is.
 func (co *configOption) require() {
 	if co.required == true && viper.GetString(co.name) == "" {
@@ -349,15 +360,7 @@ func init() {
 	}
 
 	for _, co := range configOpts {
-
-		// Bind the command line and environment variable name
-		// Unless overriden, default to a transform like tls-key -> TLS_KEY
-		if co.envVar == "" {
-			co.envVar = strutils.KebabToConstantCase(co.name)
-		}
-		viper.BindEnv(co.name, co.envVar)
-		// Initialise the persistent flags
-		co.setFlag()
+		co.init()
 	}
 
 	rootCmd.AddCommand(dbCmd)
