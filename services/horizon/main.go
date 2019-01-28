@@ -22,9 +22,6 @@ var app *horizon.App
 var c, config horizon.Config
 var rootCmd *cobra.Command
 
-// Counter to check that either neither or both TLS flags are provided
-var tlsProvided = 0
-
 // flagType implements a generic interface for the different command line flags,
 // allowing them to be configured in a uniform way.
 type flagType func(name string, value interface{}, usage string) interface{}
@@ -48,7 +45,6 @@ var (
 type configOption struct {
 	name           string              // e.g. "db-url"
 	envVar         string              // e.g. "DATABASE_URL". Defaults to uppercase/underscore representation of name
-	flagType       flagType            // e.g. boolFlag
 	flagDefault    interface{}         // A default if no option is provided. Set to "" if no default
 	required       bool                // Whether this option must be set for Horizon to run
 	usage          string              // Help text
@@ -133,7 +129,7 @@ func setLogLevel(co *configOption) {
 
 // setLogFile configures a log file for writing, ands sets the file name in the final config.
 func setLogFile(co *configOption) {
-	lf := viper.GetString("log-file")
+	lf := viper.GetString(co.name)
 	if lf != "" {
 		logFile, err := os.OpenFile(lf, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err == nil {
@@ -158,19 +154,14 @@ func setRateLimit(co *configOption) {
 	}
 }
 
-// incrementTLSFlag tracks TLS command line options for later validation, and stores the provided TLS value.
-func incrementTLSFlag(co *configOption) {
-	tls := viper.GetString(co.name)
-	if tls != "" {
-		tlsProvided++
-		*(co.configKey.(*string)) = tls
-	}
-}
-
-// validateTLS ensures that both a TLS cert and key are provided, if either is provided
-func validateTLS(tlsProvided int) {
-	if tlsProvided == 1 {
-		stdLog.Fatal("Invalid TLS config: both key and cert must be configured")
+// validateBothOrNeither ensures that both options are provided, if either is provided
+func validateBothOrNeither(option1, option2 string) {
+	arg1, arg2 := viper.GetString(option1), viper.GetString(option2)
+	switch {
+	case arg1 != "" && arg2 == "":
+		stdLog.Fatalf("Invalid config: %s=%s, but %s is not configured", option1, arg1, option2)
+	case arg1 == "" && arg2 != "":
+		stdLog.Fatalf("Invalid config: %s=%s, but %s is not configured", option2, arg2, option1)
 	}
 }
 
@@ -212,8 +203,8 @@ var configOpts = []*configOption{
 	&configOption{name: "sentry-dsn", configKey: &c.SentryDSN, flagDefault: "", usage: "Sentry URL to which panics and errors should be reported"},
 	&configOption{name: "loggly-token", configKey: &c.LogglyToken, flagDefault: "", usage: "Loggly token, used to configure log forwarding to loggly"},
 	&configOption{name: "loggly-tag", configKey: &c.LogglyTag, flagDefault: "horizon", usage: "Tag to be added to every loggly log event"},
-	&configOption{name: "tls-cert", configKey: &c.TLSCert, flagDefault: "", customSetValue: incrementTLSFlag, usage: "TLS certificate file to use for securing connections to horizon"},
-	&configOption{name: "tls-key", configKey: &c.TLSKey, flagDefault: "", customSetValue: incrementTLSFlag, usage: "TLS private key file to use for securing connections to horizon"},
+	&configOption{name: "tls-cert", configKey: &c.TLSCert, flagDefault: "", usage: "TLS certificate file to use for securing connections to horizon"},
+	&configOption{name: "tls-key", configKey: &c.TLSKey, flagDefault: "", usage: "TLS private key file to use for securing connections to horizon"},
 	&configOption{name: "ingest", configKey: &c.Ingest, flagDefault: false, usage: "causes this horizon process to ingest data from stellar-core into horizon's db"},
 	&configOption{name: "history-retention-count", configKey: &c.HistoryRetentionCount, flagDefault: uint(0), usage: "the minimum number of ledgers to maintain within horizon's history tables.  0 signifies an unlimited number of ledgers will be retained"},
 	&configOption{name: "history-stale-threshold", configKey: &c.StaleThreshold, flagDefault: uint(0), usage: "the maximum number of ledgers the history db is allowed to be out of date from the connected stellar-core db before horizon considers history stale"},
@@ -242,8 +233,8 @@ func init() {
 		// Unless overriden, default to a transform like tls-key -> TLS_KEY
 		if co.envVar == "" {
 			co.envVar = strutils.KebabToConstantCase(co.name)
-			viper.BindEnv(co.name, co.envVar)
 		}
+		viper.BindEnv(co.name, co.envVar)
 		// Initialise the persistent flags
 		co.setFlag()
 	}
@@ -279,8 +270,10 @@ func initConfig() {
 		co.setValue()
 	}
 	// Validate options that should be provided together
-	validateTLS(tlsProvided)
+	validateBothOrNeither("tls-cert", "tls-key")
+	validateBothOrNeither("loggly-token", "loggly-tag")
+	validateBothOrNeither("rate-limit-redis-key", "redis-url")
 
 	config = c
-	// stdLog.Fatal(config)
+	stdLog.Fatal(config)
 }
