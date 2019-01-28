@@ -156,9 +156,9 @@ func validateBothOrNeither(option1, option2 string) {
 	arg1, arg2 := viper.GetString(option1), viper.GetString(option2)
 	switch {
 	case arg1 != "" && arg2 == "":
-		stdLog.Fatalf("Invalid config: %s=%s, but %s is not configured", option1, arg1, option2)
+		stdLog.Fatalf("Invalid config: %s = %s, but corresponding option %s is not configured", option1, arg1, option2)
 	case arg1 == "" && arg2 != "":
-		stdLog.Fatalf("Invalid config: %s=%s, but %s is not configured", option2, arg2, option1)
+		stdLog.Fatalf("Invalid config: %s = %s, but corresponding option %s is not configured", option2, arg2, option1)
 	}
 }
 
@@ -180,7 +180,8 @@ func checkMigrations() {
 	}
 }
 
-// configOpts defines the complete flag configuration for horizon. Add a new line here to connect a new field in the horizon.Config struct
+// configOpts defines the complete flag configuration for horizon
+// Add a new entry here to connect a new field in the horizon.Config struct
 var configOpts = []*configOption{
 	&configOption{
 		name:        "db-url",
@@ -396,7 +397,6 @@ func initConfig() {
 	}
 	// Validate options that should be provided together
 	validateBothOrNeither("tls-cert", "tls-key")
-	validateBothOrNeither("loggly-token", "loggly-tag")
 	validateBothOrNeither("rate-limit-redis-key", "redis-url")
 
 	// Configure log file
@@ -411,5 +411,4 @@ func initConfig() {
 
 	// Configure log level
 	log.DefaultLogger.Level = config.LogLevel
-	stdLog.Fatal(config)
 }
