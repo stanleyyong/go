@@ -6,7 +6,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"github.com/stellar/go/network"
 	horizon "github.com/stellar/go/services/horizon/internal"
 	"github.com/stellar/go/services/horizon/internal/db2/schema"
 	apkg "github.com/stellar/go/support/app"
@@ -148,7 +147,7 @@ var configOpts = []*support.ConfigOption{
 	&support.ConfigOption{
 		Name:        "network-passphrase",
 		ConfigKey:   &config.NetworkPassphrase,
-		FlagDefault: network.TestNetworkPassphrase,
+		FlagDefault: "",
 		Required:    true,
 		Usage:       "Override the network passphrase",
 	},
