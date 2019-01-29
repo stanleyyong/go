@@ -1,15 +1,14 @@
 package config
 
 import (
+	"go/types"
 	stdLog "log"
 	"net/url"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/stellar/go/support/strutils"
-	"github.com/throttled/throttled"
 )
 
 // flagType implements a generic interface for the different command line flags,
@@ -35,6 +34,7 @@ var (
 type ConfigOption struct {
 	Name           string              // e.g. "db-url"
 	EnvVar         string              // e.g. "DATABASE_URL". Defaults to uppercase/underscore representation of name
+	OptType        types.BasicKind     // The type of this option, e.g. types.Bool
 	FlagDefault    interface{}         // A default if no option is provided. Set to "" if no default
 	Required       bool                // Whether this option must be set for Horizon to run
 	Usage          string              // Help text
@@ -75,14 +75,14 @@ func (co *ConfigOption) SetValue() {
 // setSimpleValue sets the value of a ConfigOption's configKey, based on the ConfigOption's default type.
 func (co *ConfigOption) setSimpleValue() {
 	if co.ConfigKey != nil {
-		switch co.FlagDefault.(type) {
-		case string:
+		switch co.OptType {
+		case types.String:
 			*(co.ConfigKey.(*string)) = viper.GetString(co.Name)
-		case int:
+		case types.Int:
 			*(co.ConfigKey.(*int)) = viper.GetInt(co.Name)
-		case bool:
+		case types.Bool:
 			*(co.ConfigKey.(*bool)) = viper.GetBool(co.Name)
-		case uint:
+		case types.Uint:
 			*(co.ConfigKey.(*uint)) = uint(viper.GetInt(co.Name))
 		}
 	}
@@ -90,16 +90,29 @@ func (co *ConfigOption) setSimpleValue() {
 
 // setFlag sets the correct pFlag type, based on the ConfigOption's default type.
 func (co *ConfigOption) setFlag(cmd *cobra.Command) {
-	switch co.FlagDefault.(type) {
-	case string:
+	switch co.OptType {
+	case types.String:
+		co.setDefault()
 		stringFlag(co.Name, co.FlagDefault, co.Usage, cmd)
-	case int:
+	case types.Int:
 		intFlag(co.Name, co.FlagDefault, co.Usage, cmd)
-	case bool:
+	case types.Bool:
 		boolFlag(co.Name, co.FlagDefault, co.Usage, cmd)
-	case uint:
+	case types.Uint:
 		uintFlag(co.Name, co.FlagDefault, co.Usage, cmd)
 	}
+}
+
+// setDefault sets an empty string, if no default has been specified. Other types have no obvious default, so
+// attempting to set their defaults is an error.
+func (co *ConfigOption) setDefault() {
+	if co.FlagDefault != nil {
+		return
+	}
+	if co.OptType != types.String {
+		stdLog.Fatal("Non-string options require a default to be set")
+	}
+	co.FlagDefault = ""
 }
 
 // SetDuration converts a command line int to a duration, and stores it in the final config.
@@ -116,27 +129,5 @@ func SetURL(co *ConfigOption) {
 			stdLog.Fatalf("Unable to parse URL: %s/%v", urlString, err)
 		}
 		*(co.ConfigKey.(**url.URL)) = urlType
-	}
-}
-
-// SetLogLevel validates and sets the log level in the final config.
-func SetLogLevel(co *ConfigOption) {
-	ll, err := logrus.ParseLevel(viper.GetString(co.Name))
-	if err != nil {
-		stdLog.Fatalf("Could not parse log-level: %v", viper.GetString(co.Name))
-	}
-	*(co.ConfigKey.(*logrus.Level)) = ll
-}
-
-// SetRateLimit converts a command line rate limit, and sets rate and burst limiting in the final config.
-func SetRateLimit(co *ConfigOption) {
-	var rateLimit *throttled.RateQuota = nil
-	perHourRateLimit := viper.GetInt(co.Name)
-	if perHourRateLimit != 0 {
-		rateLimit = &throttled.RateQuota{
-			MaxRate:  throttled.PerHour(perHourRateLimit),
-			MaxBurst: 100,
-		}
-		*(co.ConfigKey.(**throttled.RateQuota)) = rateLimit
 	}
 }

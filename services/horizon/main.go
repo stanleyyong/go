@@ -1,9 +1,11 @@
 package main
 
 import (
+	"go/types"
 	stdLog "log"
 	"os"
 
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	horizon "github.com/stellar/go/services/horizon/internal"
@@ -11,6 +13,7 @@ import (
 	apkg "github.com/stellar/go/support/app"
 	support "github.com/stellar/go/support/config"
 	"github.com/stellar/go/support/log"
+	"github.com/throttled/throttled"
 )
 
 var app *horizon.App
@@ -51,43 +54,46 @@ func checkMigrations() {
 // Add a new entry here to connect a new field in the horizon.Config struct
 var configOpts = []*support.ConfigOption{
 	&support.ConfigOption{
-		Name:        "db-url",
-		EnvVar:      "DATABASE_URL",
-		ConfigKey:   &config.DatabaseURL,
-		FlagDefault: "",
-		Required:    true,
-		Usage:       "horizon postgres database to connect with",
+		Name:      "db-url",
+		EnvVar:    "DATABASE_URL",
+		ConfigKey: &config.DatabaseURL,
+		OptType:   types.String,
+		Required:  true,
+		Usage:     "horizon postgres database to connect with",
 	},
 	&support.ConfigOption{
-		Name:        "stellar-core-db-url",
-		EnvVar:      "STELLAR_CORE_DATABASE_URL",
-		ConfigKey:   &config.StellarCoreDatabaseURL,
-		FlagDefault: "",
-		Required:    true,
-		Usage:       "stellar-core postgres database to connect with",
+		Name:      "stellar-core-db-url",
+		EnvVar:    "STELLAR_CORE_DATABASE_URL",
+		ConfigKey: &config.StellarCoreDatabaseURL,
+		OptType:   types.String,
+		Required:  true,
+		Usage:     "stellar-core postgres database to connect with",
 	},
 	&support.ConfigOption{
-		Name:        "stellar-core-url",
-		ConfigKey:   &config.StellarCoreURL,
-		FlagDefault: "",
-		Required:    true,
-		Usage:       "stellar-core to connect with (for http commands)",
+		Name:      "stellar-core-url",
+		ConfigKey: &config.StellarCoreURL,
+		OptType:   types.String,
+		Required:  true,
+		Usage:     "stellar-core to connect with (for http commands)",
 	},
 	&support.ConfigOption{
 		Name:        "port",
 		ConfigKey:   &config.Port,
+		OptType:     types.Uint,
 		FlagDefault: uint(8000),
 		Usage:       "tcp port to listen on for http requests",
 	},
 	&support.ConfigOption{
 		Name:        "max-db-connections",
 		ConfigKey:   &config.MaxDBConnections,
-		FlagDefault: int(20),
+		OptType:     types.Int,
+		FlagDefault: 20,
 		Usage:       "max db connections (per DB), may need to be increased when responses are slow but DB CPU is normal",
 	},
 	&support.ConfigOption{
 		Name:           "sse-update-frequency",
 		ConfigKey:      &config.SSEUpdateFrequency,
+		OptType:        types.Int,
 		FlagDefault:    5,
 		CustomSetValue: support.SetDuration,
 		Usage:          "defines how often streams should check if there's a new ledger (in seconds), may need to increase in case of big number of streams",
@@ -95,119 +101,145 @@ var configOpts = []*support.ConfigOption{
 	&support.ConfigOption{
 		Name:           "connection-timeout",
 		ConfigKey:      &config.ConnectionTimeout,
+		OptType:        types.Int,
 		FlagDefault:    55,
 		CustomSetValue: support.SetDuration,
 		Usage:          "defines the timeout of connection after which 504 response will be sent or stream will be closed, if Horizon is behind a load balancer with idle connection timeout, this should be set to a few seconds less that idle timeout",
 	},
 	&support.ConfigOption{
-		Name:           "per-hour-rate-limit",
-		ConfigKey:      &config.RateLimit,
-		FlagDefault:    3600,
-		CustomSetValue: support.SetRateLimit,
-		Usage:          "max count of requests allowed in a one hour period, by remote ip address",
+		Name:        "per-hour-rate-limit",
+		ConfigKey:   &config.RateLimit,
+		OptType:     types.Int,
+		FlagDefault: 3600,
+		CustomSetValue: func(co *support.ConfigOption) {
+			var rateLimit *throttled.RateQuota = nil
+			perHourRateLimit := viper.GetInt(co.Name)
+			if perHourRateLimit != 0 {
+				rateLimit = &throttled.RateQuota{
+					MaxRate:  throttled.PerHour(perHourRateLimit),
+					MaxBurst: 100,
+				}
+				*(co.ConfigKey.(**throttled.RateQuota)) = rateLimit
+			}
+		},
+		Usage: "max count of requests allowed in a one hour period, by remote ip address",
 	},
 	&support.ConfigOption{
-		Name:        "rate-limit-redis-key",
-		ConfigKey:   &config.RateLimitRedisKey,
-		FlagDefault: "",
-		Usage:       "redis key for storing rate limit data, useful when deploying a cluster of Horizons, ignored when redis-url is empty",
+		Name:      "rate-limit-redis-key",
+		ConfigKey: &config.RateLimitRedisKey,
+		OptType:   types.String,
+		Usage:     "redis key for storing rate limit data, useful when deploying a cluster of Horizons, ignored when redis-url is empty",
 	},
 	&support.ConfigOption{
-		Name:        "redis-url",
-		ConfigKey:   &config.RedisURL,
-		FlagDefault: "",
-		Usage:       "redis to connect with, for rate limiting",
+		Name:      "redis-url",
+		ConfigKey: &config.RedisURL,
+		OptType:   types.String,
+		Usage:     "redis to connect with, for rate limiting",
 	},
 	&support.ConfigOption{
 		Name:           "friendbot-url",
 		ConfigKey:      &config.FriendbotURL,
-		FlagDefault:    "",
+		OptType:        types.String,
 		CustomSetValue: support.SetURL,
 		Usage:          "friendbot service to redirect to",
 	},
 	&support.ConfigOption{
-		Name:           "log-level",
-		ConfigKey:      &config.LogLevel,
-		FlagDefault:    "info",
-		CustomSetValue: support.SetLogLevel,
-		Usage:          "minimum log severity (debug, info, warn, error) to log",
+		Name:        "log-level",
+		ConfigKey:   &config.LogLevel,
+		OptType:     types.String,
+		FlagDefault: "info",
+		CustomSetValue: func(co *support.ConfigOption) {
+			ll, err := logrus.ParseLevel(viper.GetString(co.Name))
+			if err != nil {
+				stdLog.Fatalf("Could not parse log-level: %v", viper.GetString(co.Name))
+			}
+			*(co.ConfigKey.(*logrus.Level)) = ll
+		},
+		Usage: "minimum log severity (debug, info, warn, error) to log",
 	},
 	&support.ConfigOption{
-		Name:        "log-file",
-		ConfigKey:   &config.LogFile,
-		FlagDefault: "",
-		Usage:       "name of the file where logs will be saved (leave empty to send logs to stdout)",
+		Name:      "log-file",
+		ConfigKey: &config.LogFile,
+		OptType:   types.String,
+		Usage:     "name of the file where logs will be saved (leave empty to send logs to stdout)",
 	},
 	&support.ConfigOption{
 		Name:        "max-path-length",
 		ConfigKey:   &config.MaxPathLength,
+		OptType:     types.Uint,
 		FlagDefault: uint(4),
 		Usage:       "the maximum number of assets on the path in `/paths` endpoint",
 	},
 	&support.ConfigOption{
-		Name:        "network-passphrase",
-		ConfigKey:   &config.NetworkPassphrase,
-		FlagDefault: "",
-		Required:    true,
-		Usage:       "Override the network passphrase",
+		Name:      "network-passphrase",
+		ConfigKey: &config.NetworkPassphrase,
+		OptType:   types.String,
+		Required:  true,
+		Usage:     "Override the network passphrase",
 	},
 	&support.ConfigOption{
-		Name:        "sentry-dsn",
-		ConfigKey:   &config.SentryDSN,
-		FlagDefault: "",
-		Usage:       "Sentry URL to which panics and errors should be reported",
+		Name:      "sentry-dsn",
+		ConfigKey: &config.SentryDSN,
+		OptType:   types.String,
+		Usage:     "Sentry URL to which panics and errors should be reported",
 	},
 	&support.ConfigOption{
-		Name:        "loggly-token",
-		ConfigKey:   &config.LogglyToken,
-		FlagDefault: "",
-		Usage:       "Loggly token, used to configure log forwarding to loggly",
+		Name:      "loggly-token",
+		ConfigKey: &config.LogglyToken,
+		OptType:   types.String,
+		Usage:     "Loggly token, used to configure log forwarding to loggly",
 	},
 	&support.ConfigOption{
 		Name:        "loggly-tag",
 		ConfigKey:   &config.LogglyTag,
+		OptType:     types.String,
 		FlagDefault: "horizon",
 		Usage:       "Tag to be added to every loggly log event",
 	},
 	&support.ConfigOption{
-		Name:        "tls-cert",
-		ConfigKey:   &config.TLSCert,
-		FlagDefault: "",
-		Usage:       "TLS certificate file to use for securing connections to horizon",
+		Name:      "tls-cert",
+		ConfigKey: &config.TLSCert,
+		OptType:   types.String,
+		Usage:     "TLS certificate file to use for securing connections to horizon",
 	},
 	&support.ConfigOption{
-		Name:        "tls-key",
-		ConfigKey:   &config.TLSKey,
-		FlagDefault: "",
-		Usage:       "TLS private key file to use for securing connections to horizon",
+		Name:      "tls-key",
+		ConfigKey: &config.TLSKey,
+		OptType:   types.String,
+		Usage:     "TLS private key file to use for securing connections to horizon",
 	},
 	&support.ConfigOption{
 		Name:        "ingest",
 		ConfigKey:   &config.Ingest,
+		OptType:     types.Bool,
 		FlagDefault: false,
 		Usage:       "causes this horizon process to ingest data from stellar-core into horizon's db",
 	},
 	&support.ConfigOption{
 		Name:        "history-retention-count",
 		ConfigKey:   &config.HistoryRetentionCount,
+		OptType:     types.Uint,
 		FlagDefault: uint(0),
 		Usage:       "the minimum number of ledgers to maintain within horizon's history tables.  0 signifies an unlimited number of ledgers will be retained",
 	},
 	&support.ConfigOption{
 		Name:        "history-stale-threshold",
 		ConfigKey:   &config.StaleThreshold,
+		OptType:     types.Uint,
 		FlagDefault: uint(0),
 		Usage:       "the maximum number of ledgers the history db is allowed to be out of date from the connected stellar-core db before horizon considers history stale",
 	},
 	&support.ConfigOption{
 		Name:        "skip-cursor-update",
 		ConfigKey:   &config.SkipCursorUpdate,
+		OptType:     types.Bool,
 		FlagDefault: false,
 		Usage:       "causes the ingester to skip reporting the last imported ledger state to stellar-core",
 	},
 	&support.ConfigOption{
 		Name:        "enable-asset-stats",
 		ConfigKey:   &config.EnableAssetStats,
+		OptType:     types.Bool,
 		FlagDefault: false,
 		Usage:       "enables asset stats during the ingestion and expose `/assets` endpoint, Enabling it has a negative impact on CPU",
 	},
@@ -263,8 +295,8 @@ func initConfig() {
 		co.SetValue()
 	}
 	// Validate options that should be provided together
-	validateBothOrNeither("tls-cert", "tls-key")
-	validateBothOrNeither("rate-limit-redis-key", "redis-url")
+	validateBothOrNeither(config.TLSCert, config.TLSKey)
+	validateBothOrNeither(config.RateLimitRedisKey, config.RedisURL)
 
 	// Configure log file
 	if config.LogFile != "" {
