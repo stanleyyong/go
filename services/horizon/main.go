@@ -260,6 +260,13 @@ func init() {
 		},
 	}
 
+	for _, co := range configOpts {
+		err := co.Init(rootCmd)
+		if err != nil {
+			stdLog.Fatal(err.Error())
+		}
+	}
+
 	rootCmd.AddCommand(dbCmd)
 }
 
@@ -277,10 +284,6 @@ func initApp(cmd *cobra.Command, args []string) *horizon.App {
 }
 
 func initConfig() {
-	for _, co := range configOpts {
-		co.Init(rootCmd)
-	}
-
 	// Migrations should be checked as early as possible
 	checkMigrations()
 
