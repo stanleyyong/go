@@ -8,26 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/stellar/go/support/errors"
 	"github.com/stellar/go/support/strutils"
-)
-
-// flagType implements a generic interface for the different command line flags,
-// allowing them to be configured in a uniform way.
-type flagType func(name string, value interface{}, usage string, rootCmd *cobra.Command) interface{}
-
-var (
-	stringFlag flagType = func(name string, value interface{}, usage string, rootCmd *cobra.Command) interface{} {
-		return rootCmd.PersistentFlags().String(name, value.(string), usage)
-	}
-	intFlag flagType = func(name string, value interface{}, usage string, rootCmd *cobra.Command) interface{} {
-		return rootCmd.PersistentFlags().Int(name, value.(int), usage)
-	}
-	uintFlag flagType = func(name string, value interface{}, usage string, rootCmd *cobra.Command) interface{} {
-		return rootCmd.PersistentFlags().Uint(name, value.(uint), usage)
-	}
-	boolFlag flagType = func(name string, value interface{}, usage string, rootCmd *cobra.Command) interface{} {
-		return rootCmd.PersistentFlags().Bool(name, value.(bool), usage)
-	}
 )
 
 // ConfigOption is a complete description of the configuration of a command line option
@@ -43,15 +25,20 @@ type ConfigOption struct {
 }
 
 // Init handles initialisation steps, including configuring and binding the env variable name.
-func (co *ConfigOption) Init(cmd *cobra.Command) {
+func (co *ConfigOption) Init(cmd *cobra.Command) error {
 	// Bind the command line and environment variable name
 	// Unless overriden, default to a transform like tls-key -> TLS_KEY
 	if co.EnvVar == "" {
 		co.EnvVar = strutils.KebabToConstantCase(co.Name)
 	}
-	viper.BindEnv(co.Name, co.EnvVar)
-	// Initialise the persistent flags
-	co.setFlag(cmd)
+	// Initialise and bind the persistent flags
+	err := co.setFlag(cmd)
+	if err != nil {
+		return err
+	}
+	co.Require()
+	co.SetValue()
+	return nil
 }
 
 // Require checks that a required string configuration option is not empty, raising a user error if it is.
@@ -89,18 +76,28 @@ func (co *ConfigOption) setSimpleValue() {
 }
 
 // setFlag sets the correct pFlag type, based on the ConfigOption's default type.
-func (co *ConfigOption) setFlag(cmd *cobra.Command) {
+func (co *ConfigOption) setFlag(cmd *cobra.Command) error {
 	switch co.OptType {
 	case types.String:
 		co.setDefault()
-		stringFlag(co.Name, co.FlagDefault, co.Usage, cmd)
+		cmd.PersistentFlags().String(co.Name, co.FlagDefault.(string), co.Usage)
 	case types.Int:
-		intFlag(co.Name, co.FlagDefault, co.Usage, cmd)
+		cmd.PersistentFlags().Int(co.Name, co.FlagDefault.(int), co.Usage)
 	case types.Bool:
-		boolFlag(co.Name, co.FlagDefault, co.Usage, cmd)
+		cmd.PersistentFlags().Bool(co.Name, co.FlagDefault.(bool), co.Usage)
 	case types.Uint:
-		uintFlag(co.Name, co.FlagDefault, co.Usage, cmd)
+		cmd.PersistentFlags().Uint(co.Name, co.FlagDefault.(uint), co.Usage)
+	default:
+		return errors.New("Unexpected OptType")
 	}
+
+	if err := viper.BindPFlag(co.Name, cmd.PersistentFlags().Lookup(co.Name)); err != nil {
+		return err
+	}
+	if err := viper.BindEnv(co.Name, co.EnvVar); err != nil {
+		return err
+	}
+	return nil
 }
 
 // setDefault sets an empty string, if no default has been specified. Other types have no obvious default, so

@@ -260,12 +260,7 @@ func init() {
 		},
 	}
 
-	for _, co := range configOpts {
-		co.Init(rootCmd)
-	}
-
 	rootCmd.AddCommand(dbCmd)
-	viper.BindPFlags(rootCmd.PersistentFlags())
 }
 
 func initApp(cmd *cobra.Command, args []string) *horizon.App {
@@ -282,18 +277,13 @@ func initApp(cmd *cobra.Command, args []string) *horizon.App {
 }
 
 func initConfig() {
-	// Check all required args were provided - needed for migrations check
 	for _, co := range configOpts {
-		co.Require()
+		co.Init(rootCmd)
 	}
 
 	// Migrations should be checked as early as possible
 	checkMigrations()
 
-	// Initialise and validate the global configuration
-	for _, co := range configOpts {
-		co.SetValue()
-	}
 	// Validate options that should be provided together
 	validateBothOrNeither(config.TLSCert, config.TLSKey)
 	validateBothOrNeither(config.RateLimitRedisKey, config.RedisURL)
