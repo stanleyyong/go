@@ -22,7 +22,7 @@ func TestHashTransaction(t *testing.T) {
 		0x0d, 0x78, 0x6b, 0x6e, 0x0a, 0x00, 0xfd, 0x74,
 	}
 
-	actual, err := HashTransaction(&txe.Tx, TestNetworkPassphrase)
+	actual, err := HashTransaction(&txe.Tx, WWNetworkPassphrase)
 	if assert.NoError(t, err) {
 		assert.Equal(t, expected, actual)
 	}

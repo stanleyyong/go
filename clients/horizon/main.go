@@ -17,6 +17,12 @@ import (
 	"github.com/stellar/go/xdr"
 )
 
+// DefaultWWNetClient is a default client to connect to test network
+var DefaultWWNetClient = &Client{
+	URL:  "http://35.197.142.191:8000",
+	HTTP: http.DefaultClient,
+}
+
 // DefaultTestNetClient is a default client to connect to test network
 var DefaultTestNetClient = &Client{
 	URL:  "https://horizon-testnet.stellar.org",
