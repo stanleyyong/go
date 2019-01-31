@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	b "github.com/stellar/go/build"
-	"github.com/stellar/go/clients/horizon"
-	"github.com/stellar/go/network"
+	"github.com/stanleyyong/go/clients/horizon"
+	"github.com/stanleyyong/go/network"
 )
 
 func main() {
@@ -15,15 +15,15 @@ func main() {
 	// seed: SDLJZXOSOMKPWAK4OCWNNVOYUEYEESPGCWK53PT7QMG4J4KGDAUIL5LG
 	to := "GA3A7AD7ZR4PIYW6A52SP6IK7UISESICPMMZVJGNUTVIZ5OUYOPBTK6X"
 
-	passphrase := network.TestNetworkPassphrase
+	passphrase := network.WWNetworkPassphrase
 
 	tx, err := b.Transaction(
 		b.Network{passphrase},
 		b.SourceAccount{from},
-		b.AutoSequence{horizon.DefaultTestNetClient},
+		b.AutoSequence{horizon.DefaultWWNetClient},
 		b.Payment(
 			b.Destination{to},
-			b.NativeAmount{"0.1"},
+			b.NativeAmount{"3.14127"},
 		),
 	)
 
