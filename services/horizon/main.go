@@ -268,6 +268,7 @@ func init() {
 	}
 
 	rootCmd.AddCommand(dbCmd)
+	viper.BindPFlags(rootCmd.PersistentFlags())
 }
 
 func initApp(cmd *cobra.Command, args []string) *horizon.App {
@@ -284,6 +285,12 @@ func initApp(cmd *cobra.Command, args []string) *horizon.App {
 }
 
 func initConfig() {
+	// Verify required options and load the config struct
+	for _, co := range configOpts {
+		co.Require()
+		co.SetValue()
+	}
+
 	// Migrations should be checked as early as possible
 	checkMigrations()
 

@@ -36,8 +36,6 @@ func (co *ConfigOption) Init(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
-	co.Require()
-	co.SetValue()
 	return nil
 }
 
@@ -91,9 +89,6 @@ func (co *ConfigOption) setFlag(cmd *cobra.Command) error {
 		return errors.New("Unexpected OptType")
 	}
 
-	if err := viper.BindPFlag(co.Name, cmd.PersistentFlags().Lookup(co.Name)); err != nil {
-		return err
-	}
 	if err := viper.BindEnv(co.Name, co.EnvVar); err != nil {
 		return err
 	}
