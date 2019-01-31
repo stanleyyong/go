@@ -295,8 +295,8 @@ func initConfig() {
 	checkMigrations()
 
 	// Validate options that should be provided together
-	validateBothOrNeither(config.TLSCert, config.TLSKey)
-	validateBothOrNeither(config.RateLimitRedisKey, config.RedisURL)
+	validateBothOrNeither("tls-cert", "tls-key")
+	validateBothOrNeither("rate-limit-redis-key", "redis-url")
 
 	// Configure log file
 	if config.LogFile != "" {
