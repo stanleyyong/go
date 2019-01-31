@@ -21,7 +21,7 @@ type ConfigOption struct {
 	Required       bool                // Whether this option must be set for Horizon to run
 	Usage          string              // Help text
 	CustomSetValue func(*ConfigOption) // Optional function for custom validation/transformation
-	ConfigKey      interface{}         // Pointer to the final key in the horizon.Config struct
+	ConfigKey      interface{}         // Pointer to the final key in the linked Config struct
 }
 
 // Init handles initialisation steps, including configuring and binding the env variable name.
@@ -77,7 +77,10 @@ func (co *ConfigOption) setSimpleValue() {
 func (co *ConfigOption) setFlag(cmd *cobra.Command) error {
 	switch co.OptType {
 	case types.String:
-		co.setDefault()
+		// Set an empty string if no default was provided, since some value is always required for pflags
+		if co.FlagDefault == nil {
+			co.FlagDefault = ""
+		}
 		cmd.PersistentFlags().String(co.Name, co.FlagDefault.(string), co.Usage)
 	case types.Int:
 		cmd.PersistentFlags().Int(co.Name, co.FlagDefault.(int), co.Usage)
@@ -93,18 +96,6 @@ func (co *ConfigOption) setFlag(cmd *cobra.Command) error {
 		return err
 	}
 	return nil
-}
-
-// setDefault sets an empty string, if no default has been specified. Other types have no obvious default, so
-// attempting to set their defaults is an error.
-func (co *ConfigOption) setDefault() {
-	if co.FlagDefault != nil {
-		return
-	}
-	if co.OptType != types.String {
-		stdLog.Fatal("Non-string options require a default to be set")
-	}
-	co.FlagDefault = ""
 }
 
 // SetDuration converts a command line int to a duration, and stores it in the final config.
