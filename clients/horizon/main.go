@@ -18,8 +18,9 @@ import (
 )
 
 // DefaultWWNetClient is a default client to connect to test network
+//I've recently redone the node since we saw the original zulucrypto version starting to fail
 var DefaultWWNetClient = &Client{
-	URL:  "http://35.197.142.191:8000",
+	URL:  "http://35.187.231.102:8000",
 	HTTP: http.DefaultClient,
 }
 
