@@ -1,8 +1,10 @@
 package actions
 
 import (
+	"bytes"
 	"context"
-	"database/sql"
+	"crypto/sha256"
+	"encoding/json"
 	"net/http"
 	"time"
 
@@ -12,7 +14,6 @@ import (
 	hProblem "github.com/stellar/go/services/horizon/internal/render/problem"
 	"github.com/stellar/go/services/horizon/internal/render/sse"
 	"github.com/stellar/go/support/errors"
-	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/support/render/problem"
 )
 
@@ -48,27 +49,27 @@ func (base *Base) Execute(action interface{}) {
 
 	switch contentType {
 	case render.MimeHal, render.MimeJSON:
-		action, ok := action.(JSON)
-
+		action, ok := action.(JSONer)
 		if !ok {
 			goto NotAcceptable
 		}
 
-		action.JSON()
-
-		if base.Err != nil {
-			problem.Render(ctx, base.W, base.Err)
+		err := action.JSON()
+		if err != nil {
+			problem.Render(ctx, base.W, err)
 			return
 		}
 
 	case render.MimeEventStream:
-		action, ok := action.(SSE)
-		if !ok {
+		switch action.(type) {
+		case EventStreamer, SingleObjectStreamer:
+		default:
 			goto NotAcceptable
 		}
 
 		stream := sse.NewStream(ctx, base.W)
 
+		var oldHash [32]byte
 		for {
 			lastLedgerState := ledger.CurrentState()
 
@@ -79,36 +80,43 @@ func (base *Base) Execute(action interface{}) {
 			if rateLimiter != nil {
 				limited, _, err := rateLimiter.RateLimiter.RateLimit(rateLimiter.VaryBy.Key(base.R), 1)
 				if err != nil {
-					log.Ctx(ctx).Error(errors.Wrap(err, "RateLimiter error"))
-					stream.Err(errors.New("Unexpected stream error"))
+					stream.Err(errors.Wrap(err, "RateLimiter error"))
 					return
 				}
 				if limited {
-					stream.Err(errors.New("rate limit exceeded"))
+					stream.Err(sse.ErrRateLimited)
 					return
 				}
 			}
 
-			action.SSE(stream)
-
-			if base.Err != nil {
-				// In the case that we haven't yet sent an event, is also means we
-				// haven't sent the preamble, meaning we should simply return the normal HTTP
-				// error.
-				if stream.SentCount() == 0 {
-					problem.Render(ctx, base.W, base.Err)
+			switch ac := action.(type) {
+			case EventStreamer:
+				err := ac.SSE(stream)
+				if err != nil {
+					stream.Err(err)
 					return
 				}
 
-				if errors.Cause(base.Err) == sql.ErrNoRows {
-					base.Err = errors.New("Object not found")
-				} else {
-					log.Ctx(ctx).Error(base.Err)
-					base.Err = errors.New("Unexpected stream error")
+			case SingleObjectStreamer:
+				newEvent, err := ac.LoadEvent()
+				if err != nil {
+					stream.Err(err)
+					return
+				}
+				resource, err := json.Marshal(newEvent.Data)
+				if err != nil {
+					stream.Err(errors.Wrap(err, "unable to marshal next action resource"))
+					return
 				}
 
-				// Send errors through the stream and then close the stream.
-				stream.Err(base.Err)
+				nextHash := sha256.Sum256(resource)
+				if bytes.Equal(nextHash[:], oldHash[:]) {
+					break
+				}
+
+				oldHash = nextHash
+				stream.SetLimit(10)
+				stream.Send(newEvent)
 			}
 
 			// Manually send the preamble in case there are no data events in SSE to trigger a stream.Send call.
@@ -146,16 +154,14 @@ func (base *Base) Execute(action interface{}) {
 			return
 		}
 	case render.MimeRaw:
-		action, ok := action.(Raw)
-
+		action, ok := action.(RawDataResponder)
 		if !ok {
 			goto NotAcceptable
 		}
 
-		action.Raw()
-
-		if base.Err != nil {
-			problem.Render(ctx, base.W, base.Err)
+		err := action.Raw()
+		if err != nil {
+			problem.Render(ctx, base.W, err)
 			return
 		}
 	default:

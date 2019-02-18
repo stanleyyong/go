@@ -3,14 +3,19 @@ package horizon
 import (
 	"net/http"
 
+	"github.com/stellar/go/protocols/horizon"
+	"github.com/stellar/go/services/horizon/internal/actions"
 	"github.com/stellar/go/services/horizon/internal/db2/core"
+	"github.com/stellar/go/services/horizon/internal/render/sse"
 	"github.com/stellar/go/services/horizon/internal/resourceadapter"
+	"github.com/stellar/go/support/render/hal"
 	"github.com/stellar/go/support/render/problem"
 	"github.com/stellar/go/xdr"
-	"github.com/stellar/go/protocols/horizon"
-	"github.com/stellar/go/services/horizon/internal/render/sse"
-	"github.com/stellar/go/support/render/hal"
 )
+
+// Interface verifications
+var _ actions.JSONer = (*OrderBookShowAction)(nil)
+var _ actions.SingleObjectStreamer = (*OrderBookShowAction)(nil)
 
 // OrderBookShowAction renders a account summary found by its address.
 type OrderBookShowAction struct {
@@ -64,23 +69,17 @@ func (action *OrderBookShowAction) LoadResource() {
 }
 
 // JSON is a method for actions.JSON
-func (action *OrderBookShowAction) JSON() {
-	action.Do(action.LoadQuery, action.LoadRecord, action.LoadResource)
-
-	action.Do(func() {
-		hal.Render(action.W, action.Resource)
-	})
+func (action *OrderBookShowAction) JSON() error {
+	action.Do(
+		action.LoadQuery,
+		action.LoadRecord,
+		action.LoadResource,
+		func() { hal.Render(action.W, action.Resource) },
+	)
+	return action.Err
 }
 
-// SSE is a method for actions.SSE
-func (action *OrderBookShowAction) SSE(stream sse.Stream) {
+func (action *OrderBookShowAction) LoadEvent() (sse.Event, error) {
 	action.Do(action.LoadQuery, action.LoadRecord, action.LoadResource)
-
-	action.Do(func() {
-		stream.SetLimit(10)
-		stream.Send(sse.Event{
-			Data: action.Resource,
-		})
-	})
-
+	return sse.Event{Data: action.Resource}, action.Err
 }
