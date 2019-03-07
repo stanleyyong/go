@@ -6,6 +6,10 @@ clientData:
 
 This endpoint represents successful [operations](../resources/operation.md) that are part of a given [transaction](../resources/transaction.md).
 
+### Warning - failed transactions
+
+"Operations for Transaction" endpoint returns list of payments of successful or failed transactions (that are also included in Stellar ledger). Always check the operation status in this endpoint using `transaction_successful` field!
+
 ## Request
 
 ```
@@ -77,7 +81,8 @@ This endpoint responds with a list of operations that are part of a given transa
         "funder": "GBIA4FH6TV64KSPDAJCNUQSM7PFL4ILGUVJDPCLUOPJ7ONMKBBVUQHRO",
         "id": 352573865332736,
         "paging_token": "352573865332736",
-        "starting_balance": 1e+09,
+        "starting_balance": "1000.0000000",
+        "transaction_successful": true,
         "type_i": 0,
         "type": "create_account"
       }

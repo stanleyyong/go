@@ -3,9 +3,8 @@ package ingest
 import (
 	"encoding/json"
 	"fmt"
-	"time"
-
 	"math"
+	"time"
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/guregu/null"
@@ -308,14 +307,15 @@ func (ingest *Ingestion) Trade(
 // Transaction ingests the provided transaction data into a new row in the
 // `history_transactions` table
 func (ingest *Ingestion) Transaction(
+	successful bool,
 	id int64,
 	tx *core.Transaction,
 	fee *core.TransactionFee,
-) {
+) error {
 	// Enquote empty signatures
 	signatures := tx.Base64Signatures()
 
-	ingest.builders[TransactionsTableName].Values(
+	return ingest.builders[TransactionsTableName].Values(
 		id,
 		tx.TransactionHash,
 		tx.LedgerSequence,
@@ -334,6 +334,7 @@ func (ingest *Ingestion) Transaction(
 		tx.Memo(),
 		time.Now().UTC(),
 		time.Now().UTC(),
+		successful,
 	)
 }
 
@@ -395,6 +396,7 @@ func (ingest *Ingestion) createInsertBuilders() {
 			"memo",
 			"created_at",
 			"updated_at",
+			"successful",
 		},
 	}
 
@@ -473,5 +475,10 @@ func (ingest *Ingestion) formatTimeBounds(bounds *xdr.TimeBounds) interface{} {
 		return sq.Expr("int8range(?,?)", bounds.MinTime, nil)
 	}
 
-	return sq.Expr("int8range(?,?)", bounds.MinTime, bounds.MaxTime)
+	maxTime := bounds.MaxTime
+	if maxTime > math.MaxInt64 {
+		maxTime = math.MaxInt64
+	}
+
+	return sq.Expr("int8range(?,?)", bounds.MinTime, maxTime)
 }

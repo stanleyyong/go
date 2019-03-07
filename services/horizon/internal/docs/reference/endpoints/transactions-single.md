@@ -6,6 +6,10 @@ clientData:
 
 The transaction details endpoint provides information on a single [transaction](../resources/transaction.md). The transaction hash provided in the `hash` argument specifies which transaction to load.
 
+### Warning - failed transactions
+
+Transaction can be successful or failed (failed transactions are also included in Stellar ledger). Always check it's status using `successful` field!
+
 ## Request
 
 ```
@@ -76,6 +80,7 @@ This endpoint responds with a single Transaction.  See [transaction resource](..
   },
   "id": "fa78cb43d72171fdb2c6376be12d57daa787b1fa1a9fdd0e9453e1f41ee5f15a",
   "paging_token": "631231343497216",
+  "successful": true,
   "hash": "fa78cb43d72171fdb2c6376be12d57daa787b1fa1a9fdd0e9453e1f41ee5f15a",
   "ledger": 146970,
   "created_at": "2015-09-24T10:07:09Z",

@@ -1,7 +1,6 @@
 package horizon
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/stellar/go/services/horizon/internal/actions"
@@ -12,7 +11,10 @@ import (
 	"github.com/stellar/go/services/horizon/internal/render/sse"
 	"github.com/stellar/go/services/horizon/internal/resourceadapter"
 	"github.com/stellar/go/services/horizon/internal/toid"
+	"github.com/stellar/go/support/errors"
 	"github.com/stellar/go/support/render/hal"
+	supportProblem "github.com/stellar/go/support/render/problem"
+	"github.com/stellar/go/xdr"
 )
 
 // This file contains the actions:
@@ -36,6 +38,7 @@ type OperationIndexAction struct {
 	Records           []history.Operation
 	Ledgers           *history.LedgerCache
 	Page              hal.Page
+	IncludeFailed     bool
 }
 
 // JSON is a method for actions.JSON
@@ -95,6 +98,14 @@ func (action *OperationIndexAction) loadParams() {
 	action.LedgerFilter = action.GetInt32("ledger_id")
 	action.TransactionFilter = action.GetString("tx_id")
 	action.PagingParams = action.GetPageQuery()
+	action.IncludeFailed = action.GetBool("include_failed")
+
+	if action.IncludeFailed == true && !action.App.config.IngestFailedTransactions {
+		err := errors.New("`include_failed` parameter is unavailable when Horizon is not ingesting failed " +
+			"transactions. Set `INGEST_FAILED_TRANSACTIONS=true` to start ingesting them.")
+		action.Err = supportProblem.MakeInvalidFieldProblem("include_failed", err)
+		return
+	}
 }
 
 func (action *OperationIndexAction) loadRecords() {
@@ -110,7 +121,37 @@ func (action *OperationIndexAction) loadRecords() {
 		ops.ForTransaction(action.TransactionFilter)
 	}
 
+	// When querying operations for transaction return both successful
+	// and failed operations. We assume that because user is querying
+	// this specific transactions, she knows it's status.
+	if action.TransactionFilter != "" || action.IncludeFailed {
+		ops.IncludeFailed()
+	}
+
 	action.Err = ops.Page(action.PagingParams).Select(&action.Records)
+	if action.Err != nil {
+		return
+	}
+
+	for _, o := range action.Records {
+		if !action.IncludeFailed && action.TransactionFilter == "" {
+			if !o.IsTransactionSuccessful() {
+				action.Err = errors.Errorf("Corrupted data! `include_failed=false` but returned transaction in /operations is failed: %s", o.TransactionHash)
+				return
+			}
+
+			var resultXDR xdr.TransactionResult
+			action.Err = xdr.SafeUnmarshalBase64(o.TxResult, &resultXDR)
+			if action.Err != nil {
+				return
+			}
+
+			if resultXDR.Result.Code != xdr.TransactionResultCodeTxSuccess {
+				action.Err = errors.Errorf("Corrupted data! `include_failed=false` but returned transaction /operations is failed: %s %s", o.TransactionHash, o.TxResult)
+				return
+			}
+		}
+	}
 }
 
 // loadLedgers populates the ledger cache for this action

@@ -1,8 +1,10 @@
-// Package resource contains the type definitions for all of horizons
+// Package horizon contains the type definitions for all of horizon's
 // response resources.
 package horizon
 
 import (
+	"fmt"
+	"strconv"
 	"time"
 
 	"encoding/base64"
@@ -42,6 +44,7 @@ type Account struct {
 	SubentryCount        int32             `json:"subentry_count"`
 	InflationDestination string            `json:"inflation_destination,omitempty"`
 	HomeDomain           string            `json:"home_domain,omitempty"`
+	LastModifiedLedger   uint32            `json:"last_modified_ledger"`
 	Thresholds           AccountThresholds `json:"thresholds"`
 	Flags                AccountFlags      `json:"flags"`
 	Balances             []Balance         `json:"balances"`
@@ -69,6 +72,18 @@ func (a Account) GetCreditBalance(code string, issuer string) string {
 	}
 
 	return "0"
+}
+
+// GetSequenceNumber returns the sequence number of the account,
+// and returns it as a 64-bit integer.
+func (a Account) GetSequenceNumber() (xdr.SequenceNumber, error) {
+	seqNum, err := strconv.ParseUint(a.Sequence, 10, 64)
+
+	if err != nil {
+		return 0, errors.Wrap(err, "Failed to parse account sequence number")
+	}
+
+	return xdr.SequenceNumber(seqNum), nil
 }
 
 // MustGetData returns decoded value for a given key. If the key does
@@ -130,6 +145,7 @@ type Balance struct {
 	Limit              string `json:"limit,omitempty"`
 	BuyingLiabilities  string `json:"buying_liabilities"`
 	SellingLiabilities string `json:"selling_liabilities"`
+	LastModifiedLedger uint32 `json:"last_modified_ledger,omitempty"`
 	base.Asset
 }
 
@@ -150,13 +166,11 @@ type Ledger struct {
 		Payments     hal.Link `json:"payments"`
 		Effects      hal.Link `json:"effects"`
 	} `json:"_links"`
-	ID       string `json:"id"`
-	PT       string `json:"paging_token"`
-	Hash     string `json:"hash"`
-	PrevHash string `json:"prev_hash,omitempty"`
-	Sequence int32  `json:"sequence"`
-	// Deprecated - remove in: horizon-v0.17.0
-	TransactionCount           int32     `json:"transaction_count"`
+	ID                         string    `json:"id"`
+	PT                         string    `json:"paging_token"`
+	Hash                       string    `json:"hash"`
+	PrevHash                   string    `json:"prev_hash,omitempty"`
+	Sequence                   int32     `json:"sequence"`
 	SuccessfulTransactionCount int32     `json:"successful_transaction_count"`
 	FailedTransactionCount     *int32    `json:"failed_transaction_count"`
 	OperationCount             int32     `json:"operation_count"`
@@ -247,25 +261,21 @@ type Root struct {
 		Transactions        hal.Link  `json:"transactions"`
 	} `json:"_links"`
 
-	HorizonVersion       string `json:"horizon_version"`
-	StellarCoreVersion   string `json:"core_version"`
-	HorizonSequence      int32  `json:"history_latest_ledger"`
-	HistoryElderSequence int32  `json:"history_elder_ledger"`
-	CoreSequence         int32  `json:"core_latest_ledger"`
-	NetworkPassphrase    string `json:"network_passphrase"`
-	// Deprecated - remove in: horizon-v0.17.0
-	ProtocolVersion              int32 `json:"protocol_version"`
-	CurrentProtocolVersion       int32 `json:"current_protocol_version"`
-	CoreSupportedProtocolVersion int32 `json:"core_supported_protocol_version"`
+	HorizonVersion               string `json:"horizon_version"`
+	StellarCoreVersion           string `json:"core_version"`
+	HorizonSequence              int32  `json:"history_latest_ledger"`
+	HistoryElderSequence         int32  `json:"history_elder_ledger"`
+	CoreSequence                 int32  `json:"core_latest_ledger"`
+	NetworkPassphrase            string `json:"network_passphrase"`
+	CurrentProtocolVersion       int32  `json:"current_protocol_version"`
+	CoreSupportedProtocolVersion int32  `json:"core_supported_protocol_version"`
 }
 
 // Signer represents one of an account's signers.
 type Signer struct {
-	// Deprecated - remove in: horizon-v0.17.0
-	PublicKey string `json:"public_key"`
-	Weight    int32  `json:"weight"`
-	Key       string `json:"key"`
-	Type      string `json:"type"`
+	Weight int32  `json:"weight"`
+	Key    string `json:"key"`
+	Type   string `json:"type"`
 }
 
 // Trade represents a horizon digested trade
@@ -365,6 +375,7 @@ type Transaction struct {
 	} `json:"_links"`
 	ID              string    `json:"id"`
 	PT              string    `json:"paging_token"`
+	Successful      bool      `json:"successful"`
 	Hash            string    `json:"hash"`
 	Ledger          int32     `json:"ledger"`
 	LedgerCloseTime time.Time `json:"created_at"`
@@ -423,6 +434,19 @@ type TransactionSuccess struct {
 	Env    string `json:"envelope_xdr"`
 	Result string `json:"result_xdr"`
 	Meta   string `json:"result_meta_xdr"`
+}
+
+// PrintTransactionSuccess prints the fields of a Horizon response.
+func (resp TransactionSuccess) TransactionSuccessToString() (s string) {
+	s += fmt.Sprintln("***TransactionSuccess dump***")
+	s += fmt.Sprintln("    Links:", resp.Links)
+	s += fmt.Sprintln("    Hash:", resp.Hash)
+	s += fmt.Sprintln("    Ledger:", resp.Ledger)
+	s += fmt.Sprintln("    Env:", resp.Env)
+	s += fmt.Sprintln("    Result:", resp.Result)
+	s += fmt.Sprintln("    Meta:", resp.Meta)
+
+	return
 }
 
 // KeyTypeFromAddress converts the version byte of the provided strkey encoded

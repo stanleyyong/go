@@ -18,12 +18,15 @@ import (
 	"github.com/stellar/go/services/horizon/internal/db2/history"
 	"github.com/stellar/go/services/horizon/internal/ingest"
 	"github.com/stellar/go/services/horizon/internal/ledger"
+	"github.com/stellar/go/services/horizon/internal/logmetrics"
 	"github.com/stellar/go/services/horizon/internal/operationfeestats"
 	"github.com/stellar/go/services/horizon/internal/paths"
 	"github.com/stellar/go/services/horizon/internal/reap"
+	"github.com/stellar/go/services/horizon/internal/simplepath"
 	"github.com/stellar/go/services/horizon/internal/txsub"
 	"github.com/stellar/go/support/app"
 	"github.com/stellar/go/support/db"
+	"github.com/stellar/go/support/errors"
 	"github.com/stellar/go/support/log"
 	"github.com/throttled/throttled"
 	"golang.org/x/net/http2"
@@ -194,19 +197,30 @@ func (a *App) UpdateLedgerState() {
 	ledger.SetState(next)
 }
 
-// UpdateOperationFeeStatsState triggers a refresh of several operation fee metrics
+// UpdateOperationFeeStatsState triggers a refresh of several operation fee metrics.
 func (a *App) UpdateOperationFeeStatsState() {
-	var err error
-	var next operationfeestats.State
+	var (
+		next          operationfeestats.State
+		latest        history.LatestLedger
+		feeStats      history.FeeStats
+		capacityStats history.LedgerCapacityUsageStats
+	)
 
-	var latest history.LatestLedger
-	var feeStats history.FeeStats
+	logErr := func(err error, msg string) {
+		// If DB is empty ignore the error
+		if errors.Cause(err) == sql.ErrNoRows {
+			return
+		}
+
+		log.WithStack(err).WithField("err", err.Error()).Error(msg)
+	}
 
 	cur := operationfeestats.CurrentState()
 
-	err = a.HistoryQ().LatestLedgerBaseFeeAndSequence(&latest)
+	err := a.HistoryQ().LatestLedgerBaseFeeAndSequence(&latest)
 	if err != nil {
-		goto Failed
+		logErr(err, "failed to load the latest known ledger's base fee and sequence number")
+		return
 	}
 
 	// finish early if no new ledgers
@@ -217,34 +231,53 @@ func (a *App) UpdateOperationFeeStatsState() {
 	next.LastBaseFee = int64(latest.BaseFee)
 	next.LastLedger = int64(latest.Sequence)
 
-	err = a.HistoryQ().TransactionsForLastXLedgers(latest.Sequence, &feeStats)
+	err = a.HistoryQ().OperationFeeStats(latest.Sequence, &feeStats)
 	if err != nil {
-		goto Failed
-	}
-
-	// if no transactions in last X ledgers, return
-	// latest ledger's base fee for all
-	if !feeStats.Mode.Valid && !feeStats.Min.Valid {
-		next.Min = next.LastBaseFee
-		next.Mode = next.LastBaseFee
-	} else {
-		next.Min = feeStats.Min.Int64
-		next.Mode = feeStats.Mode.Int64
-	}
-
-	operationfeestats.SetState(next)
-	return
-
-Failed:
-	// If DB is empty ignore the error
-	if err == sql.ErrNoRows {
+		logErr(err, "failed to load operation fee stats")
 		return
 	}
 
-	log.WithStack(err).
-		WithField("err", err.Error()).
-		Error("failed to load operation fee stats state")
+	err = a.HistoryQ().LedgerCapacityUsageStats(latest.Sequence, &capacityStats)
+	if err != nil {
+		logErr(err, "failed to load ledger capacity usage stats")
+		return
+	}
 
+	next.LedgerCapacityUsage = capacityStats.CapacityUsage.String
+
+	// if no transactions in last 5 ledgers, return
+	// latest ledger's base fee for all
+	if !feeStats.Mode.Valid && !feeStats.Min.Valid {
+		next.FeeMin = next.LastBaseFee
+		next.FeeMode = next.LastBaseFee
+		next.FeeP10 = next.LastBaseFee
+		next.FeeP20 = next.LastBaseFee
+		next.FeeP30 = next.LastBaseFee
+		next.FeeP40 = next.LastBaseFee
+		next.FeeP50 = next.LastBaseFee
+		next.FeeP60 = next.LastBaseFee
+		next.FeeP70 = next.LastBaseFee
+		next.FeeP80 = next.LastBaseFee
+		next.FeeP90 = next.LastBaseFee
+		next.FeeP95 = next.LastBaseFee
+		next.FeeP99 = next.LastBaseFee
+	} else {
+		next.FeeMin = feeStats.Min.Int64
+		next.FeeMode = feeStats.Mode.Int64
+		next.FeeP10 = feeStats.P10.Int64
+		next.FeeP20 = feeStats.P20.Int64
+		next.FeeP30 = feeStats.P30.Int64
+		next.FeeP40 = feeStats.P40.Int64
+		next.FeeP50 = feeStats.P50.Int64
+		next.FeeP60 = feeStats.P60.Int64
+		next.FeeP70 = feeStats.P70.Int64
+		next.FeeP80 = feeStats.P80.Int64
+		next.FeeP90 = feeStats.P90.Int64
+		next.FeeP95 = feeStats.P95.Int64
+		next.FeeP99 = feeStats.P99.Int64
+	}
+
+	operationfeestats.SetState(next)
 }
 
 // UpdateStellarCoreInfo updates the value of coreVersion,
@@ -329,7 +362,70 @@ func (a *App) Tick() {
 // Init initializes app, using the config to populate db connections and
 // whatnot.
 func (a *App) init() {
-	appInit.Run(a)
+	// app-context
+	a.ctx, a.cancel = context.WithCancel(context.Background())
+
+	// log
+	log.DefaultLogger.Logger.Level = a.config.LogLevel
+	log.DefaultLogger.Logger.Hooks.Add(logmetrics.DefaultMetrics)
+
+	// sentry
+	initSentry(a)
+
+	// loggly
+	initLogglyLog(a)
+
+	// stellarCoreInfo
+	a.UpdateStellarCoreInfo()
+
+	// horizon-db and core-db
+	initHorizonDb(a)
+	initCoreDb(a)
+
+	// ingester
+	initIngester(a)
+
+	// txsub
+	initSubmissionSystem(a)
+
+	// path-finder
+	a.paths = &simplepath.Finder{a.CoreQ()}
+
+	// reaper
+	a.reaper = reap.New(a.config.HistoryRetentionCount, a.HorizonSession(nil))
+
+	// web.init
+	initWeb(a)
+
+	// web.rate-limiter
+	initWebRateLimiter(a)
+
+	// web.middleware
+	initWebMiddleware(a)
+
+	// web.actions
+	initWebActions(a)
+
+	// metrics and log.metrics
+	a.metrics = metrics.NewRegistry()
+	for level, meter := range *logmetrics.DefaultMetrics {
+		a.metrics.Register(fmt.Sprintf("logging.%s", level), meter)
+	}
+
+	// db-metrics
+	initDbMetrics(a)
+
+	// web.metrics
+	initWebMetrics(a)
+
+	// txsub.metrics
+	initTxSubMetrics(a)
+
+	// ingester.metrics
+	initIngesterMetrics(a)
+
+	// redis
+	initRedis(a)
 }
 
 // run is the function that runs in the background that triggers Tick each

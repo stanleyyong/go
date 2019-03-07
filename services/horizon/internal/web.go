@@ -14,6 +14,7 @@ import (
 	"github.com/sebest/xff"
 	"github.com/stellar/go/services/horizon/internal/db2"
 	hProblem "github.com/stellar/go/services/horizon/internal/render/problem"
+	"github.com/stellar/go/services/horizon/internal/render/sse"
 	"github.com/stellar/go/services/horizon/internal/txsub/sequence"
 	"github.com/stellar/go/support/render/problem"
 	"github.com/throttled/throttled"
@@ -45,6 +46,7 @@ func initWeb(app *App) {
 	problem.RegisterError(db2.ErrInvalidCursor, problem.BadRequest)
 	problem.RegisterError(db2.ErrInvalidLimit, problem.BadRequest)
 	problem.RegisterError(db2.ErrInvalidOrder, problem.BadRequest)
+	problem.RegisterError(sse.ErrRateLimited, hProblem.RateLimitExceeded)
 }
 
 // initWebMiddleware installs the middleware stack used for horizon onto the
@@ -149,6 +151,8 @@ func initWebActions(app *App) {
 	}
 
 	// Network state related endpoints
+	r.Get("/fee_stats", OperationFeeStatsAction{}.Handle)
+	// Deprecated - remove in: horizon-v0.18.0
 	r.Get("/operation_fee_stats", OperationFeeStatsAction{}.Handle)
 
 	// friendbot
@@ -197,33 +201,4 @@ func remoteAddrIP(r *http.Request) string {
 	} else {
 		return r.RemoteAddr[0:lastSemicolon]
 	}
-}
-
-func firstXForwardedFor(r *http.Request) string {
-	return strings.TrimSpace(strings.SplitN(r.Header.Get("X-Forwarded-For"), ",", 2)[0])
-}
-
-func init() {
-	appInit.Add(
-		"web.init",
-		initWeb,
-		"app-context",
-	)
-
-	appInit.Add(
-		"web.rate-limiter",
-		initWebRateLimiter,
-		"web.init",
-	)
-	appInit.Add(
-		"web.middleware",
-		initWebMiddleware,
-		"web.init",
-		"web.rate-limiter",
-	)
-	appInit.Add(
-		"web.actions",
-		initWebActions,
-		"web.init",
-	)
 }

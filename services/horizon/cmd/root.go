@@ -20,14 +20,11 @@ import (
 var config horizon.Config
 
 var rootCmd = &cobra.Command{
-	Use:   "horizon [db|serve|version]",
+	Use:   "horizon",
 	Short: "client-facing api server for the stellar network",
 	Long:  "client-facing api server for the stellar network. It acts as the interface between Stellar Core and applications that want to access the Stellar network. It allows you to submit transactions to the network, check the status of accounts, subscribe to event streams and more.",
 	Run: func(cmd *cobra.Command, args []string) {
-		if len(args) < 1 {
-			cmd.Usage()
-			os.Exit(1)
-		}
+		initApp().Serve()
 	},
 }
 
@@ -226,6 +223,13 @@ var configOpts = []*support.ConfigOption{
 		Usage:       "causes this horizon process to ingest data from stellar-core into horizon's db",
 	},
 	&support.ConfigOption{
+		Name:        "ingest-failed-transactions",
+		ConfigKey:   &config.IngestFailedTransactions,
+		OptType:     types.Bool,
+		FlagDefault: false,
+		Usage:       "causes this horizon process to ingest failed transactions data",
+	},
+	&support.ConfigOption{
 		Name:        "history-retention-count",
 		ConfigKey:   &config.HistoryRetentionCount,
 		OptType:     types.Uint,
@@ -296,7 +300,7 @@ func initConfig() {
 	}
 
 	// Configure log level
-	log.DefaultLogger.Level = config.LogLevel
+	log.DefaultLogger.Logger.SetLevel(config.LogLevel)
 }
 
 func Execute() {

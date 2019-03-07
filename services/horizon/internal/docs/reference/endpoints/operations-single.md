@@ -6,6 +6,10 @@ clientData:
 
 The operation details endpoint provides information on a single [operation](../resources/operation.md). The operation ID provided in the `id` argument specifies which operation to load.
 
+### Warning - failed transactions
+
+Operations can be part of successful or failed transactions (failed transactions are also included in Stellar ledger). Always check operation status using `transaction_successful` field!
+
 ## Request
 
 ```
@@ -73,7 +77,8 @@ This endpoint responds with a single Operation.  See [operation resource](../res
   "funder": "GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGSNFHEYVXM3XOJMDS674JZ",
   "id": 77309415424,
   "paging_token": "77309415424",
-  "starting_balance": 1e+14,
+  "starting_balance": "1000.0000000",
+  "transaction_successful": true,
   "type_i": 0,
   "type": "create_account"
 }

@@ -21,7 +21,7 @@ var (
 )
 
 var knownErrors = map[error]struct{}{
-	errNoObject:    struct{}{},
+	sql.ErrNoRows:  struct{}{},
 	ErrRateLimited: struct{}{},
 }
 
@@ -111,11 +111,13 @@ func (s *Stream) Err(err error) {
 		return
 	}
 
-	if errors.Cause(err) == sql.ErrNoRows {
+	rootErr := errors.Cause(err)
+	if rootErr == sql.ErrNoRows {
+		//TODO: return errNoObject directly in SSE() methods.
 		err = errNoObject
 	}
 
-	_, ok := knownErrors[errors.Cause(err)]
+	_, ok := knownErrors[rootErr]
 	if !ok {
 		log.Ctx(s.ctx).Error(err)
 		err = errBadStream
